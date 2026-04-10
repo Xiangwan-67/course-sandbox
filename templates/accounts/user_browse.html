@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ platform_name }} 浏览 - 标题党沙盘</title>
+    <style>
+        body { font-family: "Microsoft YaHei", sans-serif; margin: 2rem; }
+        a { color: #06c; }
+        .nav { margin-bottom: 1.5rem; }
+        .lists-row { display: flex; gap: 1.5rem; align-items: flex-start; max-width: 1200px; }
+        .list-section { flex: 1; min-width: 0; }
+        .list-section h3 { margin-bottom: 0.75rem; }
+        .article-list { display: flex; flex-direction: column; gap: 0.75rem; }
+        .article-block { display: block; padding: 0.75rem 1rem; border: 1px solid #ccc; border-radius: 8px; background: #fafafa; text-decoration: none; color: inherit; transition: border-color .2s, background .2s; }
+        .article-block:hover { border-color: #06c; background: #f0f8ff; }
+        .article-block.visited { background: #e8e8e8; color: #888; cursor: default; border-color: #ccc; }
+        .article-block.visited .writer-id { color: #999; }
+        .article-block .writer-id { font-size: 0.9rem; color: #666; margin-bottom: 0.25rem; }
+        .article-block .title { font-weight: bold; }
+        .empty-hint { color: #999; font-size: 0.95rem; }
+    </style>
+</head>
+<body>
+    <div class="nav">
+        <h2>{{ platform_name }} 浏览界面</h2>
+        <p><a href="{% url 'accounts:user_home' %}">返回用户首页</a> | <a href="{% url 'accounts:logout' %}">退出登录</a></p>
+    </div>
+
+    <div class="lists-row">
+        <div class="list-section">
+            <h3>关注列表</h3>
+            <p class="empty-hint">展示您关注的写手发布的文章</p>
+            <div class="article-list">
+                {% for article in follow_list %}
+                {% if article.pk in visited_article_ids %}
+                <span class="article-block visited">
+                    <div class="writer-id">写手编号：{{ article.写手账号 }}</div>
+                    <div class="title">{{ article.标题|default:"（无标题）" }}</div>
+                </span>
+                {% else %}
+                <a href="{% url 'accounts:user_article_view' article.pk %}" class="article-block">
+                    <div class="writer-id">写手编号：{{ article.写手账号 }}</div>
+                    <div class="title">{{ article.标题|default:"（无标题）" }}</div>
+                </a>
+                {% endif %}
+                {% empty %}
+                <p class="empty-hint">暂无关注写手的文章</p>
+                {% endfor %}
+            </div>
+        </div>
+        <div class="list-section">
+            <h3>发现列表</h3>
+            <p class="empty-hint">展示您未关注的写手发布的文章</p>
+            <div class="article-list">
+                {% for article in discover_list %}
+                {% if article.pk in visited_article_ids %}
+                <span class="article-block visited">
+                    <div class="writer-id">写手编号：{{ article.写手账号 }}</div>
+                    <div class="title">{{ article.标题|default:"（无标题）" }}</div>
+                </span>
+                {% else %}
+                <a href="{% url 'accounts:user_article_view' article.pk %}" class="article-block">
+                    <div class="writer-id">写手编号：{{ article.写手账号 }}</div>
+                    <div class="title">{{ article.标题|default:"（无标题）" }}</div>
+                </a>
+                {% endif %}
+                {% empty %}
+                <p class="empty-hint">暂无其他写手的文章</p>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</body>
+</html>

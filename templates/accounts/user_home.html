@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>用户首页 - 标题党沙盘</title>
+    <style>
+        body { font-family: "Microsoft YaHei", sans-serif; margin: 2rem; }
+        a { color: #06c; }
+        .platforms { display: flex; gap: 2rem; margin-top: 1.5rem; }
+        .platform-icon { width: 80px; height: 80px; border: 2px solid #06c; border-radius: 12px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-weight: bold; background: #f0f8ff; transition: background .2s; }
+        .platform-icon:hover { background: #e0f0ff; }
+        .modal-mask { display: none; position: fixed; left: 0; top: 0; right: 0; bottom: 0; background: rgba(0,0,0,.4); z-index: 100; align-items: center; justify-content: center; }
+        .modal-mask.show { display: flex; }
+        .modal-box { background: #fff; padding: 1.5rem; border-radius: 8px; max-width: 420px; white-space: pre-line; }
+        .modal-buttons { margin-top: 1rem; display: flex; gap: 0.75rem; justify-content: flex-end; }
+        .modal-buttons button { padding: 0.4rem 1rem; cursor: pointer; }
+        .survey-option { padding: 0.5rem 0.75rem; margin: 0.35rem 0; border: 1px solid #ccc; border-radius: 6px; cursor: pointer; }
+        .survey-option:hover { border-color: #06c; background: #f8fcff; }
+        .survey-option.selected { border-color: #06c; background: #e8f4ff; }
+        .survey-option input[type="text"] { width: 100%; margin-top: 0.35rem; padding: 0.35rem; box-sizing: border-box; }
+        .survey-submit { margin-top: 1rem; }
+        .survey-hint { color: #999; font-size: 0.9rem; margin-top: 0.5rem; }
+    </style>
+</head>
+<body>
+    <p>用户{{ name }}，您好！</p>
+    <p><a href="{% url 'accounts:logout' %}">退出登录</a></p>
+
+    <p style="margin-top: 1rem;">选择平台进入：</p>
+    <div class="platforms">
+        <div class="platform-icon" data-platform="0" title="平台1">平台1</div>
+        <div class="platform-icon" data-platform="1" title="平台2">平台2</div>
+    </div>
+
+    <div class="modal-mask" id="switch_modal">
+        <div class="modal-box">
+            <p id="switch_modal_text"></p>
+            <div class="modal-buttons">
+                <button type="button" id="switch_modal_cancel">取消</button>
+                <button type="button" id="switch_modal_confirm">切换</button>
+            </div>
+        </div>
+    </div>
+    <div class="modal-mask" id="confirm_modal">
+        <div class="modal-box">
+            <p>您是否确认切换平台？若点击确认，则等待1min后再次登录。</p>
+            <div class="modal-buttons">
+                <button type="button" id="confirm_modal_cancel">取消</button>
+                <button type="button" id="confirm_modal_ok">确认</button>
+            </div>
+        </div>
+    </div>
+    <div class="modal-mask" id="survey_modal">
+        <div class="modal-box">
+            <p><strong>您选择换到其他平台，主要原因是？</strong></p>
+            <div class="survey-option" data-option="A">A. 环境污染：标题党太多，心烦。</div>
+            <div class="survey-option" data-option="B">B. 内容枯竭：没好文章看。</div>
+            <div class="survey-option" data-option="C">C. 好奇心：单纯想去隔壁平台看看。</div>
+            <div class="survey-option" data-option="D">
+                D. 其他：
+                <input type="text" id="survey_other_input" placeholder="请填写原因" maxlength="200">
+            </div>
+            <p class="survey-hint">请选择一项（选 D 时需填写文本框后再提交）</p>
+            <div class="modal-buttons survey-submit">
+                <button type="button" id="survey_submit_btn">提交</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        (function () {
+            var pendingTargetPlatform = null;
+            var pendingCurrentPlatform = null;
+            var switchModal = document.getElementById('switch_modal');
+            var switchModalText = document.getElementById('switch_modal_text');
+            var switchModalCancel = document.getElementById('switch_modal_cancel');
+            var switchModalConfirm = document.getElementById('switch_modal_confirm');
+            var confirmModal = document.getElementById('confirm_modal');
+            var confirmModalCancel = document.getElementById('confirm_modal_cancel');
+            var confirmModalOk = document.getElementById('confirm_modal_ok');
+            var surveyModal = document.getElementById('survey_modal');
+            var surveyOptions = document.querySelectorAll('.survey-option');
+            var surveyOtherInput = document.getElementById('survey_other_input');
+            var surveySubmitBtn = document.getElementById('survey_submit_btn');
+
+            var optionTexts = {
+                'A': 'A. 环境污染：标题党太多，心烦。',
+                'B': 'B. 内容枯竭：没好文章看。',
+                'C': 'C. 好奇心：单纯想去隔壁平台看看。',
+                'D': 'D. 其他：'
+            };
+
+            var selectedOption = null;
+            surveyOptions.forEach(function (el) {
+                el.addEventListener('click', function (e) {
+                    if (e.target.tagName === 'INPUT') return;
+                    surveyOptions.forEach(function (o) { o.classList.remove('selected'); });
+                    this.classList.add('selected');
+                    selectedOption = this.getAttribute('data-option');
+                    if (selectedOption === 'D') surveyOtherInput.focus();
+                });
+            });
+            surveyOtherInput.addEventListener('focus', function () {
+                surveyOptions.forEach(function (o) { o.classList.remove('selected'); });
+                document.querySelector('.survey-option[data-option="D"]').classList.add('selected');
+                selectedOption = 'D';
+            });
+
+            document.querySelectorAll('.platform-icon').forEach(function (el) {
+                el.addEventListener('click', function () {
+                    var target = parseInt(this.getAttribute('data-platform'), 10);
+                    var url = '{% url "accounts:user_platform_check" %}?target_platform=' + target;
+                    fetch(url, { headers: { 'X-CSRFToken': '{{ csrf_token }}' } })
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) {
+                        if (data.error) {
+                            alert(data.error);
+                            return;
+                        }
+                        if (data.match) {
+                            window.location.href = '{% url "accounts:user_browse" 0 %}'.replace('/0/', '/' + data.target_platform + '/');
+                            return;
+                        }
+                        pendingTargetPlatform = data.target_platform;
+                        pendingCurrentPlatform = data.current_platform;
+                        switchModalText.textContent = '您是' + data.current_platform_name + '的用户，是否要转换平台？\n若选择切换平台，需要等待1min。';
+                        switchModal.classList.add('show');
+                    });
+                });
+            });
+
+            switchModalCancel.addEventListener('click', function () {
+                switchModal.classList.remove('show');
+                pendingTargetPlatform = null;
+                pendingCurrentPlatform = null;
+            });
+            switchModalConfirm.addEventListener('click', function () {
+                switchModal.classList.remove('show');
+                confirmModal.classList.add('show');
+            });
+
+            confirmModalCancel.addEventListener('click', function () {
+                confirmModal.classList.remove('show');
+                pendingTargetPlatform = null;
+                pendingCurrentPlatform = null;
+            });
+            confirmModalOk.addEventListener('click', function () {
+                if (pendingTargetPlatform === null) {
+                    confirmModal.classList.remove('show');
+                    return;
+                }
+                confirmModal.classList.remove('show');
+                surveyModal.classList.add('show');
+                selectedOption = null;
+                surveyOptions.forEach(function (o) { o.classList.remove('selected'); });
+                surveyOtherInput.value = '';
+            });
+
+            surveySubmitBtn.addEventListener('click', function () {
+                if (!selectedOption) {
+                    alert('请先选择一项原因');
+                    return;
+                }
+                var reasonText = '';
+                if (selectedOption === 'D') {
+                    var otherVal = (surveyOtherInput.value || '').trim();
+                    if (!otherVal) {
+                        alert('选择“其他”时请填写具体原因');
+                        return;
+                    }
+                    reasonText = optionTexts['D'] + otherVal;
+                } else {
+                    reasonText = optionTexts[selectedOption];
+                }
+                var form = new FormData();
+                form.append('target_platform', pendingTargetPlatform);
+                form.append('from_platform', pendingCurrentPlatform);
+                form.append('switch_reason', reasonText);
+                form.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+                fetch('{% url "accounts:user_switch_platform" %}', {
+                    method: 'POST',
+                    body: form,
+                    headers: { 'X-CSRFToken': '{{ csrf_token }}' }
+                })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    surveyModal.classList.remove('show');
+                    pendingTargetPlatform = null;
+                    pendingCurrentPlatform = null;
+                    if (data.ok && data.redirect) {
+                        window.location.href = data.redirect;
+                    } else if (data.error) {
+                        alert(data.error);
+                    }
+                });
+            });
+        })();
+    </script>
+</body>
+</html>

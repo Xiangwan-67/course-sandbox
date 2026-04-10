@@ -1,0 +1,30 @@
+# Node
+node_modules/
+
+# Env
+.env
+
+# Python bytecode / cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtualenv
+venv/
+.venv/
+
+# Django / local database
+db.sqlite3
+db.sqlite3-journal
+
+# Logs (runtime-generated)
+logs/
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+

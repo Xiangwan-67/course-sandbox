@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{ platform_name }} - 平台绩效</title>
+</head>
+<body>
+  <h2>{{ platform_name }} - 平台绩效（平台负责人：{{ name }}）</h2>
+  <p>当前轮次：{{ current_round }}</p>
+
+  <div style="margin-top: 10px; padding: 12px; border: 1px solid #ddd;">
+    <strong>当前生效方案：</strong>
+    {% if current_scheme %}
+      <span>{{ current_scheme.get_方案编号_display }}（生效轮次：{{ current_scheme.生效轮次 }}）</span>
+    {% else %}
+      <span>暂无</span>
+    {% endif %}
+  </div>
+
+  <div style="margin-top: 16px; padding: 12px; border: 1px solid #ddd;">
+    <strong>可选方案（占位）</strong>
+    {% for s in schemes %}
+      <div style="padding: 10px; border: 1px solid #eee; margin-top: 10px;">
+        <div><strong>{{ s.name }}</strong></div>
+        <div style="margin-top: 4px;">{{ s.desc }}</div>
+        <button style="margin-top: 8px;" onclick="applyScheme('{{ s.code }}')">应用该方案（从本轮生效）</button>
+      </div>
+    {% endfor %}
+  </div>
+
+  <p style="margin-top: 20px;">
+    <a href="{% url 'accounts:platform_home' %}">返回平台首页</a>
+    |
+    <a href="{% url 'accounts:logout' %}">退出登录</a>
+  </p>
+
+  <script>
+    async function applyScheme(code) {
+      const form = new FormData();
+      form.append('scheme_code', code);
+      const res = await fetch("{% url 'accounts:platform_performance_apply' %}", {
+        method: 'POST',
+        body: form
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || '应用失败');
+        return;
+      }
+      alert('应用成功。后续将联动写手报酬计算。');
+      window.location.reload();
+    }
+  </script>
+</body>
+</html>

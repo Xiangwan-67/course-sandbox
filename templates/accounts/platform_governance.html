@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{ platform_name }} - 平台治理</title>
+</head>
+<body>
+  <h2>{{ platform_name }} - 平台治理（平台负责人：{{ name }}）</h2>
+  <p>当前轮次：{{ current_round }}</p>
+
+  <div style="margin-top: 16px; padding: 12px; border: 1px solid #ddd;">
+    <strong>可选措施</strong>
+    {% for m in measures %}
+      <div style="padding: 10px; border: 1px solid #eee; margin-top: 10px;">
+        <div><strong>{{ m.name }}</strong></div>
+        <div style="margin-top: 4px;">{{ m.desc }}</div>
+        {% if m.type == 'account_health_rule' %}
+          <button style="margin-top: 8px;" onclick="toggleHealthRule()">
+            {% if health_rule_published %}取消该措施{% else %}发布该措施{% endif %}
+          </button>
+        {% else %}
+          <button style="margin-top: 8px;" onclick="publishMeasure('{{ m.type }}')">发布该措施</button>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>
+
+  <p style="margin-top: 20px;">
+    <a href="{% url 'accounts:platform_home' %}">返回平台首页</a>
+    |
+    <a href="{% url 'accounts:logout' %}">退出登录</a>
+  </p>
+
+  <script>
+    async function toggleHealthRule() {
+      const type = 'account_health_rule';
+      const isPublished = {{ health_rule_published|yesno:"true,false" }};
+      if (isPublished) {
+        await cancelMeasure(type);
+      } else {
+        await publishMeasure(type);
+      }
+    }
+
+    async function publishMeasure(measureType) {
+      const form = new FormData();
+      form.append('measure_type', measureType);
+      const res = await fetch("{% url 'accounts:platform_governance_publish' %}", {
+        method: 'POST',
+        body: form
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || '发布失败');
+        return;
+      }
+      alert('发布成功，将在平台首页通知栏展示。');
+      window.location.href = "{% url 'accounts:platform_home' %}";
+    }
+
+    async function cancelMeasure(measureType) {
+      const form = new FormData();
+      form.append('measure_type', measureType);
+      const res = await fetch("{% url 'accounts:platform_governance_cancel' %}", {
+        method: 'POST',
+        body: form
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || '取消失败');
+        return;
+      }
+      alert('取消成功（下一轮起不再执行）。');
+      window.location.href = "{% url 'accounts:platform_home' %}";
+    }
+  </script>
+</body>
+</html>

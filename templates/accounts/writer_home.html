@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>写手首页 - 标题党沙盘</title>
+    <style>
+        body { font-family: "Microsoft YaHei", sans-serif; margin: 2rem; }
+        a { color: #06c; }
+        .publish-block { display: none; margin-top: 1rem; }
+        .publish-block.visible { display: block; }
+        .slider-row { margin: 1rem 0; display: flex; align-items: center; gap: 1rem; }
+        .slider-row label { min-width: 100px; }
+        .slider-row input[type="range"] { width: 200px; }
+        .slider-row .value { min-width: 2rem; font-weight: bold; }
+        .level-row { margin: 1rem 0; display: flex; align-items: flex-start; gap: 1rem; }
+        .level-row label { min-width: 100px; padding-top: 6px; }
+        .level-options { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+        .level-btn { padding: 8px 10px; border: 1px solid #ccc; border-radius: 999px; background: #fff; cursor: pointer; font-size: 0.95rem; }
+        .level-btn:hover { border-color: #06c; background: #f8fcff; }
+        .level-btn.selected { border-color: #06c; background: #d9ecff; }
+        .submit-row { margin: 1rem 0; }
+        .result-area { margin-top: 1rem; }
+        .loading-box { display: flex; align-items: center; gap: 0.75rem; padding: 1rem; color: #666; }
+        .loading-spinner { width: 24px; height: 24px; border: 3px solid #eee; border-top-color: #06c; border-radius: 50%; animation: spin 0.8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .titles-section { display: none; }
+        .titles-section.visible { display: block; }
+        .titles-prompt { margin-bottom: 0.5rem; color: #333; }
+        .titles-row { display: flex; gap: 1rem; flex-wrap: wrap; }
+        .title-card { flex: 1; min-width: 120px; padding: 0.75rem 1rem; box-sizing: border-box; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer; text-align: left; font-size: 1rem; font-family: inherit; transition: border-color .2s, background .2s; }
+        .title-card:hover { border-color: #06c; background: #f8fcff; }
+        .title-card:focus { outline: none; border-color: #06c; }
+        .title-card.empty { cursor: default; pointer-events: none; }
+        .bodies-section { display: none; }
+        .bodies-section.visible { display: block; }
+        .bodies-prompt { margin-bottom: 0.5rem; color: #333; }
+        .bodies-row { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 0.5rem; }
+        .body-card { flex: 1; min-width: 160px; min-height: 120px; padding: 0.75rem 1rem; box-sizing: border-box; border: 1px solid #ccc; border-radius: 6px; background: #fff; font-size: 0.95rem; font-family: inherit; resize: none; overflow-y: auto; white-space: pre-wrap; word-break: break-word; }
+        .body-card.readonly { cursor: default; }
+        .body-card.clickable { cursor: pointer; }
+        .body-card.clickable:hover { border-color: #06c; background: #f8fcff; }
+        .error-msg { color: red; margin-top: 0.5rem; }
+        .top-row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem; }
+        .top-row .links { display: flex; gap: 1rem; align-items: center; }
+        .rankings { display: flex; gap: 1.5rem; margin-top: 2rem; flex-wrap: wrap; }
+        .rank-box { flex: 1; min-width: 320px; max-width: 50%; border: 1px solid #ccc; border-radius: 8px; padding: 1rem; box-sizing: border-box; }
+        .rank-box h3 { margin: 0 0 0.75rem 0; font-size: 1.1rem; }
+        .rank-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+        .rank-table th, .rank-table td { border: 1px solid #ddd; padding: 0.4rem 0.5rem; text-align: left; }
+        .rank-table th { background: #f5f5f5; }
+        .rank-table .num { text-align: right; }
+        .rank-table tbody tr:hover { background: #fafafa; }
+        .article-ranking-table .title-cell { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .notice-link { position: relative; display: inline-block; padding-right: 10px; }
+        .notice-dot { position: absolute; top: -4px; right: -2px; width: 10px; height: 10px; background: #d00; border-radius: 50%; }
+    </style>
+</head>
+<body>
+    <div class="top-row">
+        <p style="margin:0;">写手{{ name }}，您好！</p>
+        <div class="links">
+            <a href="{% url 'accounts:writer_notices' %}" class="notice-link">平台通知{% if has_unread_notice %}<span class="notice-dot"></span>{% endif %}</a>
+            <a href="{% url 'accounts:writer_article_history' %}" id="link_history">历史文章列表</a>
+            <a href="{% url 'accounts:logout' %}">退出登录</a>
+        </div>
+    </div>
+
+    <button type="button" id="btn_publish">发布文章</button>
+    <p class="error-msg" id="error_publish" style="display:none;"></p>
+    <div class="publish-block" id="publish_block">
+        <h3>生成标题</h3>
+        <div class="slider-row">
+            <label for="topic">生成主题</label>
+            <input type="text" id="topic" name="topic" placeholder="不填则使用默认：关于喝水与健康的科普" style="flex:1; max-width:320px;">
+        </div>
+        <div class="level-row">
+            <label>标题夸张度</label>
+            <div class="level-options" id="title_level_options">
+                <button type="button" class="level-btn" data-level="1">朴实客观</button>
+                <button type="button" class="level-btn" data-level="2">略加修饰</button>
+                <button type="button" class="level-btn selected" data-level="3">适度渲染</button>
+                <button type="button" class="level-btn" data-level="4">明显夸大</button>
+                <button type="button" class="level-btn" data-level="5">极度夸张</button>
+            </div>
+        </div>
+        <div class="level-row">
+            <label>内容相关度</label>
+            <div class="level-options" id="relevance_level_options">
+                <button type="button" class="level-btn" data-level="1">几乎无关</button>
+                <button type="button" class="level-btn" data-level="2">勉强沾边</button>
+                <button type="button" class="level-btn selected" data-level="3">部分相关</button>
+                <button type="button" class="level-btn" data-level="4">基本相关</button>
+                <button type="button" class="level-btn" data-level="5">高度相关</button>
+            </div>
+        </div>
+        <div class="submit-row">
+            <button type="button" id="submit_btn">提交</button>
+            <p class="error-msg" id="error_msg" style="display:none;"></p>
+        </div>
+        <div class="result-area" id="result_area">
+            <div class="loading-box" id="loading_box" style="display:none;">
+                <div class="loading-spinner"></div>
+                <span id="loading_text">正在加载中</span>
+            </div>
+            <div class="titles-section" id="titles_section">
+                <p class="titles-prompt">请为您的文章选择一个标题</p>
+                <div class="titles-row" id="titles_row">
+                    <button type="button" class="title-card" id="title_low" data-index="0"></button>
+                    <button type="button" class="title-card" id="title_mid" data-index="1"></button>
+                    <button type="button" class="title-card" id="title_high" data-index="2"></button>
+                </div>
+            </div>
+            <div class="bodies-section" id="bodies_section">
+                <p class="bodies-prompt" id="bodies_prompt">您的文章标题是：<span id="selected_title_display"></span>，请选择文章正文内容。</p>
+                <div class="bodies-row" id="bodies_row">
+                    <textarea class="body-card readonly" id="body_low" readonly data-index="0"></textarea>
+                    <textarea class="body-card readonly" id="body_mid" readonly data-index="1"></textarea>
+                    <textarea class="body-card readonly" id="body_high" readonly data-index="2"></textarea>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="rankings" id="writer_rankings">
+        <div class="rank-box">
+            <h3>【文章榜单】</h3>
+            <p style="margin:0 0 0.5rem 0; color:#666; font-size:0.9rem;">{% if prev_round >= 1 %}上一轮（第{{ prev_round }}轮）同平台写手文章，按点击量排序{% else %}当前为第1轮，无上一轮数据{% endif %}</p>
+            <table class="rank-table article-ranking-table">
+                <thead>
+                    <tr>
+                        <th>标题</th>
+                        <th>写手编号</th>
+                        <th class="num">标题夸张度</th>
+                        <th class="num">内容相关度</th>
+                        <th class="num">点击量</th>
+                        <th class="num">收藏量</th>
+                        <th class="num">吸粉数</th>
+                        <th class="num">取关数</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for a in article_ranking %}
+                    <tr>
+                        <td class="title-cell" title="{{ a.标题 }}">{{ a.标题|truncatechars:30 }}</td>
+                        <td>{{ a.写手账号 }}</td>
+                        <td class="num">{% if a.标题夸张度_校准值 is not None %}{{ a.标题夸张度_校准值 }}{% else %}—{% endif %}</td>
+                        <td class="num">{% if a.内容相关度_校准值 is not None %}{{ a.内容相关度_校准值 }}{% else %}—{% endif %}</td>
+                        <td class="num">{{ a.点击量 }}</td>
+                        <td class="num">{{ a.收藏量 }}</td>
+                        <td class="num">{{ a.吸粉数 }}</td>
+                        <td class="num">{{ a.取关数 }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="8">暂无上一轮文章数据</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div class="rank-box">
+            <h3>【账号榜单】</h3>
+            <p style="margin:0 0 0.5rem 0; color:#666; font-size:0.9rem;">同平台写手，按粉丝数排序</p>
+            <table class="rank-table">
+                <thead>
+                    <tr>
+                        <th>写手编号</th>
+                        <th class="num">粉丝数</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for w in account_ranking %}
+                    <tr>
+                        <td>{{ w.账号 }}</td>
+                        <td class="num">{{ w.粉丝数 }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="2">暂无同平台写手</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        (function () {
+            var btnPublish = document.getElementById('btn_publish');
+            var publishBlock = document.getElementById('publish_block');
+            var titleLevel = 3;
+            var relevanceLevel = 3;
+            function bindLevelOptions(containerId, setter) {
+                var box = document.getElementById(containerId);
+                if (!box) return;
+                box.querySelectorAll('.level-btn').forEach(function (btn) {
+                    btn.addEventListener('click', function () {
+                        var level = parseInt(btn.getAttribute('data-level'), 10);
+                        if (!level) return;
+                        box.querySelectorAll('.level-btn').forEach(function (b) { b.classList.remove('selected'); });
+                        btn.classList.add('selected');
+                        setter(level);
+                    });
+                });
+            }
+            bindLevelOptions('title_level_options', function (v) { titleLevel = v; });
+            bindLevelOptions('relevance_level_options', function (v) { relevanceLevel = v; });
+
+            var btn = document.getElementById('submit_btn');
+            var err = document.getElementById('error_msg');
+            var loadingBox = document.getElementById('loading_box');
+            var loadingText = document.getElementById('loading_text');
+            var titlesSection = document.getElementById('titles_section');
+            var titleLow = document.getElementById('title_low');
+            var titleMid = document.getElementById('title_mid');
+            var titleHigh = document.getElementById('title_high');
+            var bodiesSection = document.getElementById('bodies_section');
+            var bodiesPrompt = document.getElementById('bodies_prompt');
+            var selectedTitleDisplay = document.getElementById('selected_title_display');
+            var bodyLow = document.getElementById('body_low');
+            var bodyMid = document.getElementById('body_mid');
+            var bodyHigh = document.getElementById('body_high');
+            var submitted = false;
+            var titleExaggerationLevel = 3;
+            var contentRelevanceLevel = 3;
+            var selectedTitle = '';
+
+            function showLoading(text) {
+                loadingText.textContent = text || '正在加载中';
+                loadingBox.style.display = 'flex';
+                titlesSection.classList.remove('visible');
+                bodiesSection.classList.remove('visible');
+            }
+            function showTitles() {
+                loadingBox.style.display = 'none';
+                bodiesSection.classList.remove('visible');
+                titlesSection.classList.add('visible');
+            }
+            function showBodies() {
+                loadingBox.style.display = 'none';
+                titlesSection.classList.remove('visible');
+                bodiesSection.classList.add('visible');
+            }
+
+            btnPublish.addEventListener('click', function () {
+                var form = new FormData();
+                form.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+                fetch('{% url "accounts:writer_start_article" %}', {
+                    method: 'POST',
+                    body: form,
+                    headers: { 'X-CSRFToken': '{{ csrf_token }}' }
+                })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    var errPub = document.getElementById('error_publish');
+                    if (data.error) {
+                        errPub.textContent = data.error;
+                        errPub.style.display = 'block';
+                        return;
+                    }
+                    errPub.style.display = 'none';
+                    publishBlock.classList.add('visible');
+                    document.getElementById('writer_rankings').style.display = 'none';
+                    document.getElementById('link_history').style.display = 'none';
+                })
+                .catch(function (e) {
+                    var errPub = document.getElementById('error_publish');
+                    errPub.textContent = '请求失败：' + e.message;
+                    errPub.style.display = 'block';
+                });
+            });
+
+            btn.addEventListener('click', function () {
+                if (submitted) return;
+                submitted = true;
+                err.style.display = 'none';
+                titleExaggerationLevel = titleLevel;
+                titleLow.textContent = '';
+                titleMid.textContent = '';
+                titleHigh.textContent = '';
+                bodyLow.value = bodyMid.value = bodyHigh.value = '';
+
+                btn.disabled = true;
+                showLoading('正在加载中');
+                var form = new FormData();
+                var topicInput = document.getElementById('topic');
+                form.append('topic', (topicInput && topicInput.value) ? topicInput.value.trim() : '');
+                form.append('title_exaggeration_level', String(titleExaggerationLevel));
+                form.append('content_relevance_level', String(relevanceLevel));
+                form.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+                var url = '{% url "accounts:writer_generate_titles" %}';
+                console.log('[写手页] 发送提交请求 url=', url, '主题=', (topicInput && topicInput.value) || '(默认)', '标题夸张度档位=', titleExaggerationLevel, '内容相关度档位=', relevanceLevel);
+                // #region agent log
+                fetch('http://127.0.0.1:7378/ingest/b848811c-e3d8-4d24-8953-b9bf6a140c23',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'3cc876'},body:JSON.stringify({sessionId:'3cc876',runId:'pre-fix',hypothesisId:'H1_csrf_cookie_missing_or_token_mismatch',location:'templates/accounts/writer_home.html:submit_btn',message:'before POST /writer/generate-titles/',data:{csrfTemplate:'{{ csrf_token }}',hasCookie:(document.cookie||'').indexOf('csrftoken=')>=0,cookieSnippet:(document.cookie||'').split(';').map(s=>s.trim()).filter(s=>s.startsWith('csrftoken=')).slice(0,1)},timestamp:Date.now()})}).catch(()=>{});
+                // #endregion
+                fetch(url, {
+                    method: 'POST',
+                    body: form,
+                    headers: { 'X-CSRFToken': '{{ csrf_token }}' }
+                })
+                .then(function (r) {
+                    console.log('[写手页] 收到响应 status=', r.status);
+                    if (!r.ok) {
+                        throw new Error(r.status === 403 ? 'CSRF校验失败（请刷新页面后重试）' : ('请求失败 ' + r.status));
+                    }
+                    return r.json();
+                })
+                .then(function (data) {
+                    console.log('[写手页] 响应 JSON=', data);
+                    if (data.error) {
+                        loadingBox.style.display = 'none';
+                        err.textContent = data.error;
+                        err.style.display = 'block';
+                        return;
+                    }
+                    var left = (data.left != null ? String(data.left) : '').trim();
+                    var center = (data.center != null ? String(data.center) : '').trim();
+                    var right = (data.right != null ? String(data.right) : '').trim();
+                    titleLow.textContent = left;
+                    titleMid.textContent = center;
+                    titleHigh.textContent = right;
+                    [titleLow, titleMid, titleHigh].forEach(function (el, i) {
+                        var txt = [left, center, right][i];
+                        if (txt && txt.trim()) el.classList.remove('empty'); else el.classList.add('empty');
+                    });
+                    showTitles();
+                })
+                .catch(function (e) {
+                    console.log('[写手页] 请求异常', e);
+                    loadingBox.style.display = 'none';
+                    err.textContent = '请求失败：' + (e && e.message ? e.message : '网络或服务器异常');
+                    err.style.display = 'block';
+                });
+            });
+
+            function onTitleClick(selectedTitleText, position) {
+                var form = new FormData();
+                form.append('title_text', selectedTitleText);
+                form.append('position', position);
+                form.append('title_exaggeration_level', titleExaggerationLevel);
+                form.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+                fetch('{% url "accounts:writer_select_title" %}', {
+                    method: 'POST',
+                    body: form,
+                    headers: { 'X-CSRFToken': '{{ csrf_token }}' }
+                })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data.error) {
+                        err.textContent = data.error;
+                        err.style.display = 'block';
+                        return;
+                    }
+                    selectedTitle = selectedTitleText;
+                    selectedTitleDisplay.textContent = selectedTitleText;
+                    err.style.display = 'none';
+                });
+
+                err.style.display = 'none';
+                showLoading('正在加载中');
+                var bodyForm = new FormData();
+                bodyForm.append('article_title', selectedTitleText);
+                bodyForm.append('content_relevance_level', String(relevanceLevel));
+                bodyForm.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+                fetch('{% url "accounts:writer_generate_bodies" %}', {
+                    method: 'POST',
+                    body: bodyForm,
+                    headers: { 'X-CSRFToken': '{{ csrf_token }}' }
+                })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data.error) {
+                        loadingBox.style.display = 'none';
+                        err.textContent = data.error;
+                        err.style.display = 'block';
+                        titlesSection.classList.add('visible');
+                        return;
+                    }
+                    contentRelevanceLevel = relevanceLevel;
+                    var left = (data.left != null ? String(data.left) : '').trim();
+                    var center = (data.center != null ? String(data.center) : '').trim();
+                    var right = (data.right != null ? String(data.right) : '').trim();
+                    bodyLow.value = left;
+                    bodyMid.value = center;
+                    bodyHigh.value = right;
+                    [bodyLow, bodyMid, bodyHigh].forEach(function (el, i) {
+                        var txt = [left, center, right][i];
+                        if (txt && txt.trim()) el.classList.add('clickable');
+                        else el.classList.remove('clickable');
+                    });
+                    showBodies();
+                })
+                .catch(function (e) {
+                    loadingBox.style.display = 'none';
+                    err.textContent = '请求失败：' + e.message;
+                    err.style.display = 'block';
+                    titlesSection.classList.add('visible');
+                });
+            }
+
+            [titleLow, titleMid, titleHigh].forEach(function (el) {
+                el.addEventListener('click', function () {
+                    var text = (this.textContent || '').trim();
+                    if (!text) return;
+                    var pos = parseInt(this.getAttribute('data-index'), 10);
+                    onTitleClick(text, pos);
+                });
+            });
+
+            [bodyLow, bodyMid, bodyHigh].forEach(function (el) {
+                el.addEventListener('click', function () {
+                    if (!this.classList.contains('clickable')) return;
+                    var text = (this.value || '').trim();
+                    if (!text) return;
+                    var pos = parseInt(this.getAttribute('data-index'), 10);
+                    var form = new FormData();
+                    form.append('body_text', text);
+                    form.append('position', pos);
+                    form.append('content_relevance_level', contentRelevanceLevel);
+                    form.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+                    fetch('{% url "accounts:writer_select_body" %}', {
+                        method: 'POST',
+                        body: form,
+                        headers: { 'X-CSRFToken': '{{ csrf_token }}' }
+                    })
+                    .then(function (r) {
+                        if (!r.ok) {
+                            throw new Error(r.status === 403 ? '未登录或无权限' : r.status === 400 ? '请先点击发布文章' : '请求失败 ' + r.status);
+                        }
+                        return r.json();
+                    })
+                    .then(function (data) {
+                        if (data.error) {
+                            err.textContent = data.error;
+                            err.style.display = 'block';
+                            return;
+                        }
+                        var aid = data.article_id != null ? String(data.article_id) : '';
+                        if (aid) {
+                            window.location.href = '{% url "accounts:article_detail" 0 %}'.replace('0', aid);
+                        } else {
+                            err.textContent = '未返回文章编号，无法跳转';
+                            err.style.display = 'block';
+                        }
+                    })
+                    .catch(function (e) {
+                        err.textContent = '选择正文失败：' + (e.message || '网络或服务器异常');
+                        err.style.display = 'block';
+                    });
+                });
+            });
+        })();
+    </script>
+</body>
+</html>

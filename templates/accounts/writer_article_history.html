@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>历史文章列表 - 标题党沙盘</title>
+    <style>
+        body { font-family: "Microsoft YaHei", sans-serif; margin: 2rem; }
+        a { color: #06c; }
+        .top-row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.5rem; }
+        .history-table { width: 100%; max-width: 800px; border-collapse: collapse; border: 1px solid #ddd; }
+        .history-table th, .history-table td { border: 1px solid #ddd; padding: 0.5rem 0.75rem; text-align: left; }
+        .history-table th { background: #f5f5f5; }
+        .history-table .num { text-align: right; }
+        .history-table tbody tr:hover { background: #fafafa; }
+        .history-table a { text-decoration: none; }
+        .history-table a:hover { text-decoration: underline; }
+        .title-cell { max-width: 320px; }
+    </style>
+</head>
+<body>
+    <div class="top-row">
+        <h2 style="margin:0;">写手{{ name }} - 历史文章列表</h2>
+        <a href="{% url 'accounts:writer_home' %}">返回写手首页</a>
+    </div>
+    <p style="color:#666; margin-bottom:1rem;">按模拟轮次从小到大排列，轮次越小越靠上。</p>
+    <table class="history-table">
+        <thead>
+            <tr>
+                <th>文章标题</th>
+                <th class="num">所属轮次</th>
+                <th class="num">报酬</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for a in articles %}
+            <tr>
+                <td class="title-cell"><a href="{% url 'accounts:article_detail' a.pk %}">{{ a.标题|default:"(无标题)"|truncatechars:60 }}</a></td>
+                <td class="num">{{ a.轮次 }}</td>
+                <td class="num">{{ a.报酬 }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="3">暂无历史文章</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>

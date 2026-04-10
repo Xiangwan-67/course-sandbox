@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录 - 标题党沙盘</title>
+    <style>
+        body { font-family: "Microsoft YaHei", sans-serif; margin: 2rem; }
+        .form { max-width: 320px; }
+        .form label { display: block; margin-top: 0.8rem; }
+        .form input { width: 100%; padding: 0.4rem; box-sizing: border-box; }
+        .form button { margin-top: 1rem; padding: 0.5rem 1rem; }
+        .error { color: red; margin-top: 0.5rem; }
+    </style>
+</head>
+<body>
+    <h1>登录</h1>
+    <form class="form" method="post" action="{% url 'accounts:login' %}">
+        {% csrf_token %}
+        <label>账号：<input type="text" name="account" required></label>
+        <label>密码：<input type="password" name="password" required></label>
+        <button type="submit">登录</button>
+        {% if error %}<p class="error">{{ error }}</p>{% endif %}
+    </form>
+</body>
+</html>

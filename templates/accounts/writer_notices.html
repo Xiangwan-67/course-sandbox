@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>平台通知 - 写手端</title>
+  <style>
+    body { font-family: "Microsoft YaHei", sans-serif; margin: 2rem; }
+    .notice { padding: 10px; border: 1px solid #eee; margin-top: 10px; border-radius: 6px; }
+    .meta { color: #666; font-size: 0.9rem; margin-top: 4px; }
+    .unread { border-color: #f2c200; background: #fffdf2; }
+    .btn { margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <h2>平台通知</h2>
+  <p>写手：{{ name }} | 平台：{{ platform_name }} | 当前轮次：{{ current_round }}</p>
+
+  {% if notices and notices|length > 0 %}
+    {% for n in notices %}
+      <div class="notice {% if n.is_unread %}unread{% endif %}">
+        <div><strong>{{ n.get_措施类型_display }}</strong>（发布轮次：第 {{ n.轮次 }} 轮）{% if n.is_unread %}<span style="color:#c00; margin-left: 6px;">● 未读</span>{% endif %}</div>
+        <div class="meta">生效轮次：第 {{ n.生效轮次 }} 轮{% if n.取消轮次 %} | 取消轮次：第 {{ n.取消轮次 }} 轮{% endif %}</div>
+        <div class="meta">发布人：{{ n.发布人账号 }} | 时间：{{ n.创建时间 }}</div>
+        {% if n.措施内容 %}
+          <pre style="white-space: pre-wrap; margin: 8px 0 0 0;">{{ n.措施内容|safe }}</pre>
+        {% endif %}
+        {% if n.is_unread %}
+          <button class="btn" onclick="markRead({{ n.id }})">我已阅读</button>
+        {% endif %}
+      </div>
+    {% endfor %}
+  {% else %}
+    <p>暂无通知。</p>
+  {% endif %}
+
+  <p style="margin-top: 20px;">
+    <a href="{% url 'accounts:writer_home' %}">返回写手首页</a>
+    |
+    <a href="{% url 'accounts:logout' %}">退出登录</a>
+  </p>
+
+  <script>
+    async function markRead(id) {
+      const form = new FormData();
+      form.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+      const res = await fetch(('{% url 'accounts:writer_notice_read' 0 %}').replace('0', String(id)), {
+        method: 'POST',
+        body: form,
+        headers: { 'X-CSRFToken': '{{ csrf_token }}' }
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || '操作失败');
+        return;
+      }
+      window.location.reload();
+    }
+  </script>
+</body>
+</html>

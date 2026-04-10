@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ article.标题|default:"文章" }} - 标题党沙盘</title>
+    <style>
+        body { font-family: "Microsoft YaHei", sans-serif; margin: 0; padding: 1rem 2rem; }
+        a { color: #06c; }
+        .layout { display: flex; gap: 2rem; max-width: 1000px; margin: 0 auto; }
+        .main { flex: 1; min-width: 0; }
+        .sidebar { width: 180px; flex-shrink: 0; }
+        .article-title { font-size: 1.5rem; margin-bottom: 0.5rem; }
+        .writer-row { margin-bottom: 1rem; display: flex; align-items: center; gap: 0.75rem; }
+        .writer-row .writer-id { color: #666; font-size: 0.95rem; }
+        .article-body { white-space: pre-wrap; word-break: break-word; line-height: 1.6; margin-bottom: 1.5rem; }
+        .action-btns { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
+        .action-btns button { padding: 0.5rem 1rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; }
+        .action-btns .btn-icon-svg { width: 1.25em; height: 1.25em; flex-shrink: 0; }
+        .action-btns .btn-icon-svg .icon-stroke { stroke: #222; fill: #fff; transition: stroke 0.2s, fill 0.2s; }
+        .action-btns button.active .btn-icon-svg .icon-stroke { stroke: #c00; fill: #c00; }
+        .read-complete-wrap { margin-top: 1rem; }
+        .read-complete-wrap .note { color: #666; font-size: 0.9rem; margin-top: 0.35rem; }
+        .btn-read-complete-icon { font-size: 1.35rem; margin-right: 0.25rem; vertical-align: middle; }
+        .stats { border: 1px solid #ddd; border-radius: 8px; padding: 1rem; background: #fafafa; }
+        .stats h4 { margin: 0 0 0.75rem 0; font-size: 0.95rem; }
+        .stat-row { padding: 0.35rem 0; border-bottom: 1px solid #eee; }
+        .stat-row:last-child { border-bottom: none; }
+        .comments-section { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #ddd; }
+        .comments-head { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; }
+        .comments-head h4 { margin: 0; }
+        .btn-plus { width: 28px; height: 28px; padding: 0; border-radius: 50%; cursor: pointer; font-size: 1.2rem; line-height: 1; }
+        .comment-item { padding: 0.5rem 0; border-bottom: 1px solid #eee; font-size: 0.95rem; }
+        .comment-meta { color: #666; font-size: 0.85rem; margin-top: 0.25rem; }
+        .comment-total { margin-top: 0.75rem; color: #666; font-size: 0.9rem; }
+        .comment-form { margin-top: 0.75rem; }
+        .comment-form textarea { width: 100%; min-height: 60px; padding: 0.5rem; box-sizing: border-box; }
+        .comment-form .btn-pub { margin-top: 0.5rem; }
+        .modal-mask { display: none; position: fixed; left: 0; top: 0; right: 0; bottom: 0; background: rgba(0,0,0,.4); z-index: 100; align-items: center; justify-content: center; }
+        .modal-mask.show { display: flex; }
+        .modal-box { background: #fff; padding: 1.5rem; border-radius: 8px; max-width: 420px; white-space: pre-line; }
+        .modal-buttons { margin-top: 1rem; display: flex; gap: 0.75rem; }
+        .modal-buttons .confirm { order: 1; }
+        .modal-buttons .cancel { order: 2; }
+        .survey-option { padding: 0.5rem 0.75rem; margin: 0.35rem 0; border: 1px solid #ccc; border-radius: 6px; cursor: pointer; }
+        .survey-option:hover { border-color: #06c; background: #f8fcff; }
+        .survey-option.selected { border-color: #06c; background: #e8f4ff; }
+        .survey-option input[type="text"] { width: 100%; margin-top: 0.35rem; padding: 0.35rem; box-sizing: border-box; }
+        .survey-hint { color: #999; font-size: 0.9rem; margin-top: 0.5rem; }
+    </style>
+</head>
+<body>
+    <p>{% if is_user_view %}<a href="{% url 'accounts:user_browse' platform_id|default:0 %}">返回平台浏览</a>{% else %}<a href="{% url 'accounts:writer_home' %}">返回写手首页</a>{% endif %} | <a href="{% url 'accounts:logout' %}">退出登录</a></p>
+
+    <div class="layout">
+        <div class="main">
+            <h1 class="article-title">{{ article.标题|default:"（无标题）" }}</h1>
+            {% if is_user_view %}
+            <div class="writer-row">
+                <span class="writer-id">写手编号：{{ article.写手账号 }}</span>
+                <button type="button" id="btn_follow" data-writer="{{ article.写手账号 }}">{% if is_following %}取消关注{% else %}关注{% endif %}</button>
+            </div>
+            {% endif %}
+            <div class="article-body">{{ article.正文|default:"" }}</div>
+
+            {% if is_user_view %}
+            <div class="action-btns">
+                <button type="button" id="btn_like" title="点赞" class="{% if has_liked %}active{% endif %}">
+                    <svg class="btn-icon-svg" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path class="icon-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>
+                    <span class="btn-text">{% if has_liked %}已点赞{% else %}点赞{% endif %}</span>
+                </button>
+                <button type="button" id="btn_collect" title="收藏" class="{% if has_collected %}active{% endif %}">
+                    <svg class="btn-icon-svg" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path class="icon-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                    <span class="btn-text">{% if has_collected %}已收藏{% else %}收藏{% endif %}</span>
+                </button>
+            </div>
+            <div class="read-complete-wrap">
+                <button type="button" id="btn_read_complete" class="btn-read-complete">{% if has_read_complete %}<span class="btn-read-complete-icon">✓</span>已全文阅读完成{% else %}全文阅读完成{% endif %}</button>
+                <p class="note">若您阅读完全文，请点击此按钮。</p>
+            </div>
+            {% endif %}
+
+            <div class="comments-section">
+                <div class="comments-head">
+                    <h4>评论列表</h4>
+                    {% if is_user_view %}<button type="button" class="btn-plus" id="btn_add_comment" title="添加评论">+</button>{% endif %}
+                </div>
+                <div id="comment_list">
+                    {% for c in comments %}
+                    <div class="comment-item">
+                        <div>{{ c.内容 }}</div>
+                        <div class="comment-meta">{% if c.评论者 %}{{ c.评论者 }} · {% endif %}{{ c.创建时间|date:"Y-m-d H:i" }}</div>
+                    </div>
+                    {% empty %}
+                    <div class="comment-item" id="comment_empty">暂无评论</div>
+                    {% endfor %}
+                </div>
+                <div class="comment-form" id="comment_form" style="display:none;">
+                    <textarea id="comment_input" placeholder="输入评论内容"></textarea>
+                    <button type="button" class="btn-pub" id="comment_submit">发布</button>
+                </div>
+                <p class="comment-total">评论总数量：<span id="comment_count">{{ comment_count }}</span></p>
+            </div>
+        </div>
+        <aside class="sidebar">
+            <div class="stats">
+                <h4>文章数据</h4>
+                <div class="stat-row">已推送：<span id="stat_已推送">{{ article.已推送 }}</span></div>
+                <div class="stat-row">点击量：<span id="stat_点击量">{{ article.点击量 }}</span></div>
+                <div class="stat-row">点赞量：<span id="stat_点赞量">{{ article.点赞量 }}</span></div>
+                <div class="stat-row">收藏量：<span id="stat_收藏量">{{ article.收藏量 }}</span></div>
+                {% if not is_user_view %}
+                <div class="stat-row">吸粉数：<span id="stat_吸粉数">{{ article.吸粉数 }}</span></div>
+                <div class="stat-row">取关数：<span id="stat_取关数">{{ article.取关数 }}</span></div>
+                <div class="stat-row">阅读完成量：<span id="stat_阅读完成量">{{ article.阅读完成量 }}</span></div>
+                {% endif %}
+            </div>
+        </aside>
+    </div>
+
+    {% if is_user_view %}
+    <div class="modal-mask" id="unfollow_confirm_modal">
+        <div class="modal-box">
+            <p id="unfollow_confirm_text"></p>
+            <div class="modal-buttons">
+                <button type="button" class="confirm" id="unfollow_confirm_ok">确认</button>
+                <button type="button" class="cancel" id="unfollow_confirm_cancel">取消</button>
+            </div>
+        </div>
+    </div>
+    <div class="modal-mask" id="unfollow_survey_modal">
+        <div class="modal-box">
+            <p><strong>您选择了不再关注该账号 / 拉黑该账号，主要原因是？</strong></p>
+            <div class="survey-option" data-option="A">A. 踩雷了（单次）：刚刚这篇文章的内容/标题让我极度反感（涉黄、诈骗、严重欺诈）。</div>
+            <div class="survey-option" data-option="B">B. 变质了（累积）：关注了一段时间，发现干货越来越少，水文越来越多，失望了。</div>
+            <div class="survey-option" data-option="C">C. 累了（环境）：平台到处都是这种标题党，现在看见标题党就心烦。</div>
+            <div class="survey-option" data-option="D">D. 其他：<input type="text" id="unfollow_other_input" placeholder="请填写原因" maxlength="200"></div>
+            <p class="survey-hint">请选择一项（选 D 时需填写文本框后再提交）</p>
+            <div class="modal-buttons" style="margin-top:1rem;">
+                <button type="button" id="unfollow_survey_submit">提交</button>
+            </div>
+        </div>
+    </div>
+    <script>
+    (function(){
+        var articleId = {{ article.pk }};
+        var writerAccount = '{{ article.写手账号|escapejs }}';
+        var isFollowing = {{ is_following|yesno:"true,false" }};
+        var followedOnThisPage = false;
+        var followBtn = document.getElementById('btn_follow');
+        var statLike = document.getElementById('stat_点赞量');
+        var statCollect = document.getElementById('stat_收藏量');
+        var statRead = document.getElementById('stat_阅读完成量');
+        var statFans = document.getElementById('stat_吸粉数');
+        var statUnfollow = document.getElementById('stat_取关数');
+        var btnLike = document.getElementById('btn_like');
+        var btnCollect = document.getElementById('btn_collect');
+        var btnReadComplete = document.getElementById('btn_read_complete');
+
+        function post(url, data, cb) {
+            var form = new FormData();
+            for (var k in data) form.append(k, data[k]);
+            form.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+            fetch(url, { method: 'POST', body: form, headers: { 'X-CSRFToken': '{{ csrf_token }}' } })
+            .then(function(r){ return r.json(); }).then(cb).catch(function(e){ alert('请求失败'); });
+        }
+
+        btnLike.onclick = function(){
+            post('{% url "accounts:user_article_like" article.pk %}', {}, function(d){
+                if (d.ok) {
+                    if (statLike) statLike.textContent = d.点赞量;
+                    btnLike.classList.toggle('active', d.已点赞);
+                    btnLike.querySelector('.btn-text').textContent = d.已点赞 ? '已点赞' : '点赞';
+                }
+            });
+        };
+        btnCollect.onclick = function(){
+            post('{% url "accounts:user_article_collect" article.pk %}', {}, function(d){
+                if (d.ok) {
+                    if (statCollect) statCollect.textContent = d.收藏量;
+                    btnCollect.classList.toggle('active', d.已收藏);
+                    btnCollect.querySelector('.btn-text').textContent = d.已收藏 ? '已收藏' : '收藏';
+                }
+            });
+        };
+        btnReadComplete.onclick = function(){
+            post('{% url "accounts:user_article_read_complete" article.pk %}', {}, function(d){
+                if (d.ok) {
+                    if (statRead) statRead.textContent = d.阅读完成量;
+                    btnReadComplete.innerHTML = d.已阅读完成 ? '<span class="btn-read-complete-icon">✓</span>已全文阅读完成' : '全文阅读完成';
+                }
+            });
+        };
+
+        followBtn.onclick = function(){
+            if (isFollowing) {
+                document.getElementById('unfollow_confirm_text').textContent = '您是否要取消关注写手' + writerAccount + '？';
+                document.getElementById('unfollow_confirm_modal').classList.add('show');
+            } else {
+                post('{% url "accounts:user_article_follow" article.pk %}', {}, function(d){
+                    if (d.ok) { isFollowing = true; followedOnThisPage = true; followBtn.textContent = '取消关注'; if (statFans) statFans.textContent = d.吸粉数; }
+                });
+            }
+        };
+
+        var unfollowConfirmModal = document.getElementById('unfollow_confirm_modal');
+        var unfollowConfirmOk = document.getElementById('unfollow_confirm_ok');
+        var unfollowConfirmCancel = document.getElementById('unfollow_confirm_cancel');
+        unfollowConfirmCancel.onclick = function(){ unfollowConfirmModal.classList.remove('show'); };
+        unfollowConfirmOk.onclick = function(){
+            unfollowConfirmModal.classList.remove('show');
+            if (followedOnThisPage) {
+                followedOnThisPage = false;
+                post('{% url "accounts:user_article_unfollow" article.pk %}', { quick_unfollow: '1' }, function(d){
+                    if (d.ok) { isFollowing = false; followBtn.textContent = '关注'; if (statFans) statFans.textContent = d.吸粉数; }
+                });
+                return;
+            }
+            document.getElementById('unfollow_survey_modal').classList.add('show');
+            selectedUnfollowOption = null;
+            document.querySelectorAll('#unfollow_survey_modal .survey-option').forEach(function(o){ o.classList.remove('selected'); });
+            document.getElementById('unfollow_other_input').value = '';
+        };
+
+        var selectedUnfollowOption = null;
+        var unfollowSurveyModal = document.getElementById('unfollow_survey_modal');
+        document.querySelectorAll('#unfollow_survey_modal .survey-option').forEach(function(el){
+            el.onclick = function(e){ if(e.target.tagName==='INPUT') return; this.classList.add('selected'); document.querySelectorAll('#unfollow_survey_modal .survey-option').forEach(function(o){ o.classList.remove('selected'); }); this.classList.add('selected'); selectedUnfollowOption = this.getAttribute('data-option'); };
+        });
+        document.getElementById('unfollow_other_input').onfocus = function(){
+            document.querySelectorAll('#unfollow_survey_modal .survey-option').forEach(function(o){ o.classList.remove('selected'); });
+            document.querySelector('#unfollow_survey_modal .survey-option[data-option="D"]').classList.add('selected');
+            selectedUnfollowOption = 'D';
+        };
+        var unfollowOptionTexts = { 'A':'A. 踩雷了（单次）：刚刚这篇文章的内容/标题让我极度反感（涉黄、诈骗、严重欺诈）。', 'B':'B. 变质了（累积）：关注了一段时间，发现干货越来越少，水文越来越多，失望了。', 'C':'C. 累了（环境）：平台到处都是这种标题党，现在看见标题党就心烦。', 'D':'D. 其他：' };
+        document.getElementById('unfollow_survey_submit').onclick = function(){
+            if (!selectedUnfollowOption) { alert('请先选择一项原因'); return; }
+            var reason = selectedUnfollowOption === 'D' ? unfollowOptionTexts.D + (document.getElementById('unfollow_other_input').value || '').trim() : unfollowOptionTexts[selectedUnfollowOption];
+            if (selectedUnfollowOption === 'D' && !(document.getElementById('unfollow_other_input').value || '').trim()) { alert('选择“其他”时请填写具体原因'); return; }
+            post('{% url "accounts:user_article_unfollow" article.pk %}', { unfollow_reason: reason }, function(d){
+                if (d.ok) { unfollowSurveyModal.classList.remove('show'); isFollowing = false; followBtn.textContent = '关注'; if (statUnfollow) statUnfollow.textContent = d.取关数; }
+                else if (d.error) alert(d.error);
+            });
+        };
+
+        document.getElementById('btn_add_comment').onclick = function(){
+            document.getElementById('comment_form').style.display = 'block';
+        };
+        document.getElementById('comment_submit').onclick = function(){
+            var content = (document.getElementById('comment_input').value || '').trim();
+            if (!content) { alert('评论内容不能为空'); return; }
+            post('{% url "accounts:user_article_add_comment" article.pk %}', { content: content }, function(d){
+                if (d.ok) {
+                    document.getElementById('comment_input').value = '';
+                    document.getElementById('comment_form').style.display = 'none';
+                    var empty = document.getElementById('comment_empty');
+                    if (empty) empty.outerHTML = '';
+                    var div = document.createElement('div'); div.className = 'comment-item';
+                    div.innerHTML = '<div>' + content.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</div><div class="comment-meta">您 · 刚刚</div>';
+                    document.getElementById('comment_list').appendChild(div);
+                    document.getElementById('comment_count').textContent = d.comment_count;
+                } else if (d.error) alert(d.error);
+            });
+        };
+    })();
+    </script>
+    {% endif %}
+</body>
+</html>
