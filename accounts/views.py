@@ -19,6 +19,7 @@ from accounts.models import (
     ClickbaitDetectionConfig, ClickbaitDetectionResult,
     TrafficPenaltyConfig, ArticleTraffic,
     UserReportConfig, ArticleReport,
+    RevenuePenaltyConfig, ArticleRevenueSettlement,
 )
 
 PLATFORM_NAMES = {0: '平台1', 1: '平台2'}
@@ -298,9 +299,9 @@ def platform_governance(request):
         {
             'type': 'revenue_penalty',
             'name': '收益惩罚',
-            'desc': '对标题党文章进行收益惩罚（β系数）。',
+            'desc': '对标题党文章进行收益惩罚（β系数）。需先配置参数再发布。',
             'published': _is_measure_published('revenue_penalty'),
-            'config_url': None,
+            'config_url': 'accounts:platform_revenue_penalty',
         },
         {
             'type': 'performance_rule',
@@ -352,6 +353,11 @@ def platform_governance_publish(request):
         if cfg:
             config_id = cfg.pk
             content = {'举报触发阈值': str(cfg.举报触发阈值), '审核方式': cfg.审核方式}
+    elif measure_type == 'revenue_penalty':
+        cfg = RevenuePenaltyConfig.objects.filter(platform_id=platform_id).order_by('-id').first()
+        if cfg:
+            config_id = cfg.pk
+            content = {'惩罚系数beta': str(cfg.惩罚系数beta)}
     rec = PlatformGovernanceMeasure.objects.create(
         平台=platform_id,
         轮次=round_num,
@@ -558,6 +564,58 @@ def platform_report_save(request):
     return JsonResponse({'ok': True, 'config_id': cfg.pk})
 
 
+def platform_revenue_penalty(request):
+    """收益惩罚配置页：GET 展示当前配置 + 启用状态。"""
+    account = request.session.get('account', '')
+    if not account or request.session.get('role') != 'platform':
+        return redirect('accounts:login')
+    platform_user = PlatformAccount.objects.filter(账号=account).first()
+    platform_id = getattr(platform_user, '所属平台', 0) if platform_user else 0
+    current_round = _get_current_round()
+    cfg = RevenuePenaltyConfig.objects.filter(platform_id=platform_id).order_by('-id').first()
+    measure = _get_effective_governance_measure(platform_id, 'revenue_penalty', current_round)
+    latest_measure = (
+        PlatformGovernanceMeasure.objects
+        .filter(平台=platform_id, 措施类型='revenue_penalty')
+        .order_by('-轮次', '-id')
+        .first()
+    )
+    is_published = bool(latest_measure and latest_measure.取消轮次 is None)
+    return render(request, 'accounts/platform_revenue_penalty.html', {
+        'name': account,
+        'platform_id': platform_id,
+        'platform_name': PLATFORM_NAMES.get(platform_id, '平台1'),
+        'current_round': current_round,
+        'config': cfg,
+        'is_published': is_published,
+        'is_effective': bool(measure),
+    })
+
+
+@require_http_methods(['POST'])
+def platform_revenue_penalty_save(request):
+    """保存收益惩罚配置参数（β 值）。"""
+    account = request.session.get('account', '')
+    if not account or request.session.get('role') != 'platform':
+        return JsonResponse({'error': '未登录或非平台角色'}, status=403)
+    platform_user = PlatformAccount.objects.filter(账号=account).first()
+    platform_id = getattr(platform_user, '所属平台', 0) if platform_user else 0
+    try:
+        beta = Decimal(request.POST.get('beta', '0.50'))
+    except Exception:
+        beta = Decimal('0.50')
+    beta = max(Decimal('0'), min(Decimal('1'), beta))
+    cfg = RevenuePenaltyConfig.objects.create(
+        platform_id=platform_id,
+        惩罚系数beta=beta,
+    )
+    action_log(
+        f"平台 {platform_id} 保存收益惩罚配置 config_id={cfg.pk} "
+        f"beta={beta} 操作人={account}"
+    )
+    return JsonResponse({'ok': True, 'config_id': cfg.pk})
+
+
 def platform_performance(request):
     """平台绩效：展示当前生效方案、待审核方案，提供 w1-w4 输入表单。"""
     account = request.session.get('account', '')
@@ -683,6 +741,93 @@ def _decimal(v) -> Decimal:
         return v if isinstance(v, Decimal) else Decimal(str(v))
     except Exception:
         return Decimal('0')
+
+
+def _settle_article_revenue(platform_id: int, round_num: int):
+    """收益结算：遍历本轮该平台所有文章，计算原始收益，若为标题党且启用了收益惩罚则乘以 β。
+
+    公式：
+        原始收益 = w1×点击量 + w2×阅读完成量 + w3×收藏量 + w4×满意度均分
+        最终收益 = 原始收益 × β（若标题党且启用惩罚），否则 = 原始收益
+
+    由 end_round 结算流程调用。
+    """
+    from accounts.models import (
+        Article, PlatformPerformanceScheme, RevenuePenaltyConfig,
+        ArticleRevenueSettlement, WriterAccount,
+    )
+
+    active_scheme = (
+        PlatformPerformanceScheme.objects
+        .filter(平台=platform_id, status='active', 生效轮次__lte=round_num)
+        .order_by('-生效轮次', '-id')
+        .first()
+    )
+    w1 = Decimal(str(active_scheme.w1_click or 0)) if active_scheme else Decimal('0.25')
+    w2 = Decimal(str(active_scheme.w2_finish or 0)) if active_scheme else Decimal('0.25')
+    w3 = Decimal(str(active_scheme.w3_collect or 0)) if active_scheme else Decimal('0.25')
+    w4 = Decimal(str(active_scheme.w4_satisfaction or 0)) if active_scheme else Decimal('0.25')
+
+    revenue_penalty_measure = _get_effective_governance_measure(platform_id, 'revenue_penalty', round_num)
+    beta = Decimal('1.0')
+    if revenue_penalty_measure:
+        rp_cfg = RevenuePenaltyConfig.objects.filter(platform_id=platform_id).order_by('-id').first()
+        if rp_cfg:
+            beta = rp_cfg.惩罚系数beta
+
+    writers = WriterAccount.objects.filter(所属平台=platform_id)
+    writer_accounts = set(writers.values_list('账号', flat=True))
+
+    articles = Article.objects.filter(写手账号__in=writer_accounts, 轮次=round_num)
+
+    for art in articles:
+        clicks = art.点击量 or 0
+        finish_count = UserArticleReadComplete.objects.filter(文章=art).count()
+        collect_count = UserArticleCollect.objects.filter(文章=art).count()
+        satisfaction = Decimal('0')
+
+        raw_revenue = (
+            w1 * Decimal(str(clicks))
+            + w2 * Decimal(str(finish_count))
+            + w3 * Decimal(str(collect_count))
+            + w4 * satisfaction
+        )
+
+        penalty_applied = False
+        penalty_coeff = Decimal('1.0')
+        if art.is_clickbait and revenue_penalty_measure:
+            penalty_applied = True
+            penalty_coeff = beta
+
+        final_revenue = raw_revenue * penalty_coeff
+
+        art.报酬 = int(final_revenue)
+        art.save(update_fields=['报酬'])
+
+        ArticleRevenueSettlement.objects.create(
+            platform_id=platform_id,
+            写手账号=art.写手账号,
+            文章=art,
+            轮次=round_num,
+            点击量=clicks,
+            阅读完成量=finish_count,
+            收藏量=collect_count,
+            满意度均分=satisfaction,
+            w1=w1, w2=w2, w3=w3, w4=w4,
+            原始收益=raw_revenue,
+            penalty_applied=penalty_applied,
+            penalty_coefficient=penalty_coeff,
+            最终收益=final_revenue,
+        )
+
+        action_log(
+            f"文章收益结算 article_id={art.pk} writer={art.写手账号} "
+            f"round={round_num} platform={platform_id} "
+            f"clicks={clicks} finish={finish_count} collect={collect_count} "
+            f"w1={w1} w2={w2} w3={w3} w4={w4} "
+            f"raw={raw_revenue} is_clickbait={art.is_clickbait} "
+            f"penalty={'1' if penalty_applied else '0'} beta={penalty_coeff} final={final_revenue}"
+        )
 
 
 def _submit_user_report(user_account: str, article_id: int, platform_id: int, round_num: int):
