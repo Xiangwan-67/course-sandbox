@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{ platform_name }} - 标题党检测配置</title>
+</head>
+<body>
+  <h2>{{ platform_name }} - 标题党检测配置</h2>
+  <p>平台负责人：{{ name }} ｜ 当前轮次：{{ current_round }}</p>
+
+  <div style="margin-top: 16px; padding: 12px; border: 1px solid #ddd;">
+    <h3>当前状态</h3>
+    <p>
+      发布状态：
+      {% if is_published %}
+        <span style="color: green; font-weight: bold;">已发布</span>
+      {% else %}
+        <span style="color: gray;">未发布</span>
+      {% endif %}
+      ｜ 生效状态：
+      {% if is_effective %}
+        <span style="color: green; font-weight: bold;">已生效</span>
+      {% else %}
+        <span style="color: orange;">未生效</span>
+        {% if is_published %}（下一轮起生效）{% endif %}
+      {% endif %}
+    </p>
+
+    {% if config %}
+    <div style="margin-top: 8px; padding: 8px; background: #f9f9f9; border: 1px solid #eee;">
+      <p>当前配置（ID: {{ config.pk }}）</p>
+      <ul>
+        <li>判定阈值：{{ config.判定阈值 }}</li>
+        <li>判定概率值：{{ config.判定概率值 }}</li>
+        <li>创建时间：{{ config.创建时间 }}</li>
+      </ul>
+    </div>
+    {% else %}
+    <p style="color: orange;">尚未配置参数，请先保存配置后再发布启用。</p>
+    {% endif %}
+  </div>
+
+  <div style="margin-top: 20px; padding: 12px; border: 1px solid #ddd;">
+    <h3>配置参数</h3>
+    <form id="configForm">
+      <div style="margin-bottom: 10px;">
+        <label>判定阈值（整数）：</label>
+        <input type="number" id="threshold" name="threshold"
+               value="{{ config.判定阈值|default:3 }}" min="1" max="10" style="width: 80px;" />
+        <span style="color: #888; margin-left: 8px;">标题夸张度 X 与内容相关度 Y 的综合阈值</span>
+      </div>
+      <div style="margin-bottom: 10px;">
+        <label>判定概率值（0~1）：</label>
+        <input type="number" id="probability" name="probability" step="0.01"
+               value="{{ config.判定概率值|default:'0.50' }}" min="0" max="1" style="width: 100px;" />
+        <span style="color: #888; margin-left: 8px;">超过阈值后被判定为标题党的概率</span>
+      </div>
+      <button type="button" onclick="saveConfig()">保存配置</button>
+    </form>
+  </div>
+
+  <div style="margin-top: 20px; padding: 12px; border: 1px solid #ddd;">
+    <h3>启用/关闭</h3>
+    {% if is_published %}
+      <button onclick="cancelMeasure()">取消标题党检测</button>
+      <span style="color: #888; margin-left: 8px;">取消后下一轮起不再执行自动检测</span>
+    {% else %}
+      <button onclick="publishMeasure()">发布启用标题党检测</button>
+      <span style="color: #888; margin-left: 8px;">发布后下一轮起对写手文章进行自动检测</span>
+    {% endif %}
+  </div>
+
+  <p style="margin-top: 20px;">
+    <a href="{% url 'accounts:platform_governance' %}">返回治理总览</a>
+    |
+    <a href="{% url 'accounts:platform_home' %}">返回平台首页</a>
+    |
+    <a href="{% url 'accounts:logout' %}">退出登录</a>
+  </p>
+
+  <script>
+    async function saveConfig() {
+      const threshold = document.getElementById('threshold').value;
+      const probability = document.getElementById('probability').value;
+      const form = new FormData();
+      form.append('threshold', threshold);
+      form.append('probability', probability);
+      const res = await fetch("{% url 'accounts:platform_clickbait_detection_save' %}", {
+        method: 'POST',
+        body: form
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || '保存失败');
+        return;
+      }
+      alert('配置保存成功（ID: ' + data.config_id + '）');
+      window.location.reload();
+    }
+
+    async function publishMeasure() {
+      const form = new FormData();
+      form.append('measure_type', 'clickbait_detection');
+      const res = await fetch("{% url 'accounts:platform_governance_publish' %}", {
+        method: 'POST',
+        body: form
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || '发布失败');
+        return;
+      }
+      alert('标题党检测已发布，下一轮起生效。');
+      window.location.reload();
+    }
+
+    async function cancelMeasure() {
+      const form = new FormData();
+      form.append('measure_type', 'clickbait_detection');
+      const res = await fetch("{% url 'accounts:platform_governance_cancel' %}", {
+        method: 'POST',
+        body: form
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || '取消失败');
+        return;
+      }
+      alert('标题党检测已取消（下一轮起不再执行）。');
+      window.location.reload();
+    }
+  </script>
+</body>
+</html>

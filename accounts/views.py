@@ -16,6 +16,7 @@ from accounts.models import (
     UserArticleLike, UserArticleCollect, UserArticleReadComplete,
     SimulationRound,
     AccountHealthLevelConfig, WriterNoticeRead, WriterHealthScoreLog,
+    ClickbaitDetectionConfig, ClickbaitDetectionResult,
 )
 
 PLATFORM_NAMES = {0: '平台1', 1: '平台2'}
@@ -254,20 +255,57 @@ def platform_governance(request):
     platform_user = PlatformAccount.objects.filter(账号=account).first()
     platform_id = getattr(platform_user, '所属平台', 0) if platform_user else 0
     current_round = _get_current_round()
-    latest_health_rule = (
-        PlatformGovernanceMeasure.objects
-        .filter(平台=platform_id, 措施类型='account_health_rule')
-        .order_by('-轮次', '-id')
-        .first()
-    )
-    # 按 UI 语义：只要存在一条“未取消”的规则记录，就显示“取消该措施”
-    # 一旦点击取消会写入取消轮次，此时按钮回到“发布该措施”
-    health_rule_published = bool(latest_health_rule and latest_health_rule.取消轮次 is None)
+    def _is_measure_published(m_type):
+        rec = (
+            PlatformGovernanceMeasure.objects
+            .filter(平台=platform_id, 措施类型=m_type)
+            .order_by('-轮次', '-id')
+            .first()
+        )
+        return bool(rec and rec.取消轮次 is None)
+
     measures = [
         {
             'type': 'account_health_rule',
             'name': '账号健康分规则',
-            'desc': '对平台所有写手账号设置健康分（初始100分），按梯度惩罚（细则待补）。发布后进入通知栏。',
+            'desc': '对平台所有写手账号设置健康分（初始100分），按梯度惩罚。发布后进入通知栏。',
+            'published': _is_measure_published('account_health_rule'),
+            'config_url': None,
+        },
+        {
+            'type': 'clickbait_detection',
+            'name': '标题党检测',
+            'desc': '自动检测写手文章是否为标题党。需先配置阈值和概率值，再发布启用。',
+            'published': _is_measure_published('clickbait_detection'),
+            'config_url': 'accounts:platform_clickbait_detection',
+        },
+        {
+            'type': 'user_report',
+            'name': '用户举报',
+            'desc': '允许用户举报疑似标题党文章，达到阈值后自动/人工审核。',
+            'published': _is_measure_published('user_report'),
+            'config_url': None,
+        },
+        {
+            'type': 'traffic_penalty',
+            'name': '流量惩罚',
+            'desc': '对标题党文章进行流量降权（α系数）。',
+            'published': _is_measure_published('traffic_penalty'),
+            'config_url': None,
+        },
+        {
+            'type': 'revenue_penalty',
+            'name': '收益惩罚',
+            'desc': '对标题党文章进行收益惩罚（β系数）。',
+            'published': _is_measure_published('revenue_penalty'),
+            'config_url': None,
+        },
+        {
+            'type': 'performance_rule',
+            'name': '绩效规则',
+            'desc': '配置写手绩效考核权重方案，需管理员审批。',
+            'published': _is_measure_published('performance_rule'),
+            'config_url': None,
         },
     ]
     return render(request, 'accounts/platform_governance.html', {
@@ -276,7 +314,6 @@ def platform_governance(request):
         'platform_name': PLATFORM_NAMES.get(platform_id, '平台1'),
         'current_round': current_round,
         'measures': measures,
-        'health_rule_published': health_rule_published,
     })
 
 
@@ -289,22 +326,27 @@ def platform_governance_publish(request):
     platform_user = PlatformAccount.objects.filter(账号=account).first()
     platform_id = getattr(platform_user, '所属平台', 0) if platform_user else 0
     measure_type = (request.POST.get('measure_type') or '').strip()
-    if measure_type not in ('account_health_rule',):
+    VALID_MEASURE_TYPES = ('account_health_rule', 'clickbait_detection', 'user_report', 'traffic_penalty', 'revenue_penalty', 'performance_rule')
+    if measure_type not in VALID_MEASURE_TYPES:
         return JsonResponse({'error': '未知措施类型'}, status=400)
     round_num = _get_current_round()
     effective_round = round_num + 1
+    config_id = None
     content = {}
     if measure_type == 'account_health_rule':
-        content = {
-            'initial_score': 100,
-            'note': '细则占位，后续补充惩罚梯度与触发条件。',
-        }
+        content = {'initial_score': 100}
+    elif measure_type == 'clickbait_detection':
+        cfg = ClickbaitDetectionConfig.objects.filter(platform_id=platform_id).order_by('-id').first()
+        if cfg:
+            config_id = cfg.pk
+            content = {'判定阈值': cfg.判定阈值, '判定概率值': str(cfg.判定概率值)}
     rec = PlatformGovernanceMeasure.objects.create(
         平台=platform_id,
         轮次=round_num,
         生效轮次=effective_round,
         措施类型=measure_type,
         措施内容=content,
+        config_id=config_id,
         发布人账号=account,
     )
     action_log(f"平台 {platform_id} 发布治理措施 type={measure_type} round={round_num} effective_round={effective_round} rec_id={rec.pk}")
@@ -319,8 +361,8 @@ def platform_governance_cancel(request):
         return JsonResponse({'error': '未登录或非平台角色'}, status=403)
     platform_user = PlatformAccount.objects.filter(账号=account).first()
     platform_id = getattr(platform_user, '所属平台', 0) if platform_user else 0
-    measure_type = (request.POST.get('measure_type') or '').strip() or 'account_health_rule'
-    if measure_type not in ('account_health_rule',):
+    measure_type = (request.POST.get('measure_type') or '').strip()
+    if not measure_type or measure_type not in ('account_health_rule', 'clickbait_detection', 'user_report', 'traffic_penalty', 'revenue_penalty', 'performance_rule'):
         return JsonResponse({'error': '未知措施类型'}, status=400)
     round_num = _get_current_round()
     cancel_round = round_num + 1
@@ -338,6 +380,62 @@ def platform_governance_cancel(request):
     rec.save(update_fields=['取消轮次'])
     action_log(f"平台 {platform_id} 取消治理措施 type={measure_type} round={round_num} cancel_round={cancel_round} rec_id={rec.pk}")
     return JsonResponse({'ok': True, 'id': rec.pk, 'cancel_round': cancel_round})
+
+
+def platform_clickbait_detection(request):
+    """标题党检测配置页：GET 展示当前配置 + 启用状态。"""
+    account = request.session.get('account', '')
+    if not account or request.session.get('role') != 'platform':
+        return redirect('accounts:login')
+    platform_user = PlatformAccount.objects.filter(账号=account).first()
+    platform_id = getattr(platform_user, '所属平台', 0) if platform_user else 0
+    current_round = _get_current_round()
+    cfg = ClickbaitDetectionConfig.objects.filter(platform_id=platform_id).order_by('-id').first()
+    measure = _get_effective_governance_measure(platform_id, 'clickbait_detection', current_round)
+    latest_measure = (
+        PlatformGovernanceMeasure.objects
+        .filter(平台=platform_id, 措施类型='clickbait_detection')
+        .order_by('-轮次', '-id')
+        .first()
+    )
+    is_published = bool(latest_measure and latest_measure.取消轮次 is None)
+    return render(request, 'accounts/platform_clickbait_detection.html', {
+        'name': account,
+        'platform_id': platform_id,
+        'platform_name': PLATFORM_NAMES.get(platform_id, '平台1'),
+        'current_round': current_round,
+        'config': cfg,
+        'is_published': is_published,
+        'is_effective': bool(measure),
+    })
+
+
+@require_http_methods(['POST'])
+def platform_clickbait_detection_save(request):
+    """保存标题党检测配置参数（阈值、概率值）。"""
+    account = request.session.get('account', '')
+    if not account or request.session.get('role') != 'platform':
+        return JsonResponse({'error': '未登录或非平台角色'}, status=403)
+    platform_user = PlatformAccount.objects.filter(账号=account).first()
+    platform_id = getattr(platform_user, '所属平台', 0) if platform_user else 0
+    try:
+        threshold = int(request.POST.get('threshold', 3))
+    except (TypeError, ValueError):
+        threshold = 3
+    try:
+        probability = Decimal(request.POST.get('probability', '0.5'))
+    except Exception:
+        probability = Decimal('0.5')
+    cfg = ClickbaitDetectionConfig.objects.create(
+        platform_id=platform_id,
+        判定阈值=threshold,
+        判定概率值=probability,
+    )
+    action_log(
+        f"平台 {platform_id} 保存标题党检测配置 config_id={cfg.pk} "
+        f"阈值={threshold} 概率值={probability} 操作人={account}"
+    )
+    return JsonResponse({'ok': True, 'config_id': cfg.pk})
 
 
 def platform_performance(request):
@@ -456,13 +554,33 @@ def _decimal(v) -> Decimal:
         return Decimal('0')
 
 
-def is_clickbait(title: str, body: str) -> bool:
-    """标题党检测接口（占位）。
+def _get_effective_governance_measure(platform_id: int, measure_type: str, round_num: int):
+    """获取某平台某措施类型在指定轮次是否有效（生效且未取消），返回 PlatformGovernanceMeasure 或 None。"""
+    return (
+        PlatformGovernanceMeasure.objects
+        .filter(平台=platform_id, 措施类型=measure_type, 生效轮次__lte=round_num)
+        .filter(Q(取消轮次__isnull=True) | Q(取消轮次__gt=round_num))
+        .order_by('-生效轮次', '-id')
+        .first()
+    )
 
-    输入标题与正文，输出 True/False 表示是否为标题党。当前默认返回 False，后续替换为真实检测逻辑。
+
+def is_clickbait(article, platform_id: int, round_num: int) -> bool:
+    """标题党检测 — 可插拔接口。
+
+    当前实现：恒返回 False（占位）。
+    后续在此处插入具体判定公式，基于 article 的标题夸张度(X)、内容相关度(Y)、
+    ClickbaitDetectionConfig 中的阈值和概率值等参数。
+
+    返回 True 表示该文章被判定为标题党，False 表示非标题党。
+    若平台未启用标题党检测功能包，直接返回 False。
     """
-    _ = (title or '').strip()
-    __ = (body or '').strip()
+    measure = _get_effective_governance_measure(platform_id, 'clickbait_detection', round_num)
+    if not measure:
+        return False
+    # 读取配置（即使当前不使用，也验证配置可读性）
+    _cfg = ClickbaitDetectionConfig.objects.filter(platform_id=platform_id).order_by('-id').first()
+    # TODO: 后续在此处插入具体判定公式
     return False
 
 
@@ -950,40 +1068,71 @@ def writer_select_body(request):
         f"写手 {account} 选择正文 位置={position} 内容相关度档位Y={initial} 校准档次={content_relevance_calibrated} 正文摘要={body_short!r}"
     )
 
-    # 账号健康分规则：若规则在本轮已生效且未取消，则进行标题党检测并可能扣分
+    # 标题党检测 + 账号健康分规则
     writer = WriterAccount.objects.filter(账号=account).first()
     writer_platform = getattr(writer, '所属平台', 0) if writer else 0
     round_num = article.轮次
+
+    # 标题党检测（无论平台是否启用检测，都记录检测结果）
+    X = article.标题夸张度_校准值 or article.标题夸张度_初始值 or 0
+    Y = article.内容相关度_校准值 or article.内容相关度_初始值 or 0
+    detection_executed = bool(_get_effective_governance_measure(writer_platform, 'clickbait_detection', round_num))
+    clickbait = is_clickbait(article, writer_platform, round_num) if detection_executed else False
+
+    # 记录检测结果
+    ClickbaitDetectionResult.objects.create(
+        文章=article,
+        轮次=round_num,
+        平台=writer_platform,
+        标题夸张度X=X,
+        内容相关度Y=Y,
+        自动检测是否执行=detection_executed,
+        检测结果=clickbait if detection_executed else None,
+    )
+
+    # 更新文章标题党标记
+    if detection_executed:
+        article.is_clickbait = clickbait
+        article.clickbait_detected_at = round_num
+        if clickbait:
+            article.method_auto_rule = True
+        article.save(update_fields=['is_clickbait', 'clickbait_detected_at', 'method_auto_rule'])
+
+    action_log(
+        f"标题党检测 writer={account} article_id={article.pk} round={round_num} "
+        f"platform={writer_platform} X={X} Y={Y} "
+        f"detection_executed={'1' if detection_executed else '0'} "
+        f"clickbait={'1' if clickbait else '0'}"
+    )
+
+    # 账号健康分规则：扣分
     health_rule = _get_effective_health_rule(writer_platform, round_num)
     configs = _get_effective_health_level_configs(round_num)
     before_score = int(getattr(writer, '健康分', 100) if writer else 100)
     after_score = before_score
     delta = 0
-    clickbait = False
-    if health_rule:
-        clickbait = bool(is_clickbait(article.标题, article.正文))
-        if clickbait and writer:
-            delta = -10
-            after_score = max(0, before_score + delta)
-            writer.健康分 = after_score
-            writer.save(update_fields=['健康分'])
-            WriterHealthScoreLog.objects.create(
-                写手账号=account,
-                轮次=round_num,
-                文章编号=article.pk,
-                变更值=delta,
-                原因='标题党命中',
-            )
+    if health_rule and clickbait and writer:
+        delta = -10
+        after_score = max(0, before_score + delta)
+        writer.健康分 = after_score
+        writer.save(update_fields=['健康分'])
+        WriterHealthScoreLog.objects.create(
+            写手账号=account,
+            轮次=round_num,
+            event_type='violation',
+            文章编号=article.pk,
+            变更值=delta,
+            原因='标题党命中',
+        )
+        action_log(
+            f"健康分扣减 writer={account} article_id={article.pk} round={round_num} "
+            f"delta={delta} before={before_score} after={after_score}"
+        )
+
     ratio = _match_push_ratio(after_score, configs)
-    # 若平台未发布规则：仍按健康档（score=100）匹配配置，默认 0.7
     if not health_rule:
         ratio = _match_push_ratio(100, configs)
-    # 日志：标题党检测与扣分结果
-    action_log(
-        f"标题党检测 writer={account} article_id={article.pk} round={round_num} platform={writer_platform} "
-        f"rule_active={'1' if health_rule else '0'} clickbait={'1' if clickbait else '0'} "
-        f"score_before={before_score} delta={delta} score_after={after_score} discover_ratio={str(ratio)}"
-    )
+
     _do_article_push(article, discover_ratio=ratio)
     return JsonResponse({'ok': True, 'article_id': article.pk})
 

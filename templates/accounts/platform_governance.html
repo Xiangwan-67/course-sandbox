@@ -15,13 +15,18 @@
       <div style="padding: 10px; border: 1px solid #eee; margin-top: 10px;">
         <div><strong>{{ m.name }}</strong></div>
         <div style="margin-top: 4px;">{{ m.desc }}</div>
-        {% if m.type == 'account_health_rule' %}
-          <button style="margin-top: 8px;" onclick="toggleHealthRule()">
-            {% if health_rule_published %}取消该措施{% else %}发布该措施{% endif %}
-          </button>
-        {% else %}
-          <button style="margin-top: 8px;" onclick="publishMeasure('{{ m.type }}')">发布该措施</button>
-        {% endif %}
+        <div style="margin-top: 8px;">
+          {% if m.published %}
+            <span style="color: green; margin-right: 8px;">✔ 已发布</span>
+            <button onclick="toggleMeasure('{{ m.type }}', true)">取消该措施</button>
+          {% else %}
+            <span style="color: gray; margin-right: 8px;">未发布</span>
+            <button onclick="toggleMeasure('{{ m.type }}', false)">发布该措施</button>
+          {% endif %}
+          {% if m.config_url %}
+            <a href="{% url m.config_url %}" style="margin-left: 12px;">配置参数</a>
+          {% endif %}
+        </div>
       </div>
     {% endfor %}
   </div>
@@ -33,13 +38,11 @@
   </p>
 
   <script>
-    async function toggleHealthRule() {
-      const type = 'account_health_rule';
-      const isPublished = {{ health_rule_published|yesno:"true,false" }};
+    async function toggleMeasure(measureType, isPublished) {
       if (isPublished) {
-        await cancelMeasure(type);
+        await cancelMeasure(measureType);
       } else {
-        await publishMeasure(type);
+        await publishMeasure(measureType);
       }
     }
 
@@ -55,8 +58,8 @@
         alert(data.error || '发布失败');
         return;
       }
-      alert('发布成功，将在平台首页通知栏展示。');
-      window.location.href = "{% url 'accounts:platform_home' %}";
+      alert('发布成功，下一轮起生效。');
+      window.location.reload();
     }
 
     async function cancelMeasure(measureType) {
@@ -72,7 +75,7 @@
         return;
       }
       alert('取消成功（下一轮起不再执行）。');
-      window.location.href = "{% url 'accounts:platform_home' %}";
+      window.location.reload();
     }
   </script>
 </body>
