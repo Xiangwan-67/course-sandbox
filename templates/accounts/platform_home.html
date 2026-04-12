@@ -108,12 +108,50 @@
   </div>
 
   <div style="margin-top: 16px; padding: 12px; border: 1px solid #ddd;">
-    <strong>平台治理（占位）</strong>
+    <strong>治理状态总览</strong>
     <div style="margin-top: 6px;">
-      <a href="{% url 'accounts:platform_governance' %}">进入平台治理</a>
+      <a href="{% url 'accounts:platform_governance' %}">进入平台治理总览</a>
+      |
+      <a href="{% url 'accounts:platform_performance' %}">进入绩效规则</a>
     </div>
+
     <div style="margin-top: 10px;">
-      <strong>通知栏</strong>
+      <strong>当前已启用功能包</strong>
+      {% if governance_status and governance_status|length > 0 %}
+        {% for g in governance_status %}
+          <div style="padding: 8px; border: 1px solid #eee; margin-top: 8px; background:#fafafa;">
+            <div><strong>{{ g.icon }} {{ g.name }}</strong>（生效轮次：第 {{ g.effective_round }} 轮）</div>
+            <div style="margin-top: 4px; color:#555;">参数摘要：{{ g.summary }}</div>
+            <div style="margin-top: 4px;">
+              <a href="{% url g.config_url %}">进入配置页</a>
+            </div>
+          </div>
+        {% endfor %}
+      {% else %}
+        <div style="margin-top: 6px;">当前暂无已启用功能包。</div>
+      {% endif %}
+    </div>
+
+    <div style="margin-top: 12px; padding: 10px; border: 1px dashed #bbb;">
+      <strong>上轮关键结果摘要（第 {{ prev_round_summary.round }} 轮）</strong>
+      <div style="margin-top: 6px;">
+        发文总数：{{ prev_round_summary.article_count }} |
+        标题党文章数：{{ prev_round_summary.clickbait_count }} |
+        用户举报总量：{{ prev_round_summary.report_count }}
+      </div>
+      <div style="margin-top: 4px;">
+        受流量惩罚文章数：{{ prev_round_summary.traffic_penalized_articles }} |
+        受健康分处罚写手数：{{ prev_round_summary.violated_writer_count }}
+      </div>
+      <div style="margin-top: 4px;">
+        整体互动：点击={{ prev_round_summary.total_click }}，
+        阅读完成={{ prev_round_summary.total_finish }}，
+        收藏={{ prev_round_summary.total_collect }}
+      </div>
+    </div>
+
+    <div style="margin-top: 10px;">
+      <strong>治理通知栏</strong>
       {% if governance_notices and governance_notices|length > 0 %}
         {% for n in governance_notices %}
           <div style="padding: 8px; border: 1px solid #eee; margin-top: 8px;">
@@ -145,6 +183,13 @@
       {% else %}
         <span>暂无</span>
       {% endif %}
+    </div>
+  </div>
+
+  <div style="margin-top: 16px; padding: 12px; border: 1px solid #ddd; background: #fcfcfc;">
+    <strong>治理结果入口</strong>
+    <div style="margin-top: 6px;">
+      本轮/历史治理结果查看页将于下一任务接入。
     </div>
   </div>
 

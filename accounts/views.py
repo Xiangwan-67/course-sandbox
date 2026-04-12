@@ -283,6 +283,96 @@ def platform_home(request):
         collecting_message = f"本周期（{(latest_complete_cycle_index * period) + 1}~{(latest_complete_cycle_index + 1) * period}轮）数据收集中"
     financial_analysis = "财务分析功能待接入（后续由大模型生成）"
 
+    # 治理总览区：当前生效功能包 + 参数摘要 + 上轮关键结果
+    current_performance_scheme = (
+        PlatformPerformanceScheme.objects.filter(平台=platform_id, 生效轮次__lte=current_round, status='active')
+        .order_by('-生效轮次', '-id')
+        .first()
+    )
+    enabled_measure_defs = [
+        ('account_health_rule', '账号健康分', '🩺', 'accounts:platform_governance'),
+        ('clickbait_detection', '标题党检测', '🧪', 'accounts:platform_clickbait_detection'),
+        ('user_report', '用户举报', '📣', 'accounts:platform_report'),
+        ('traffic_penalty', '流量惩罚', '📉', 'accounts:platform_traffic_penalty'),
+        ('revenue_penalty', '收益惩罚', '💰', 'accounts:platform_revenue_penalty'),
+        ('performance_rule', '绩效规则', '⚙️', 'accounts:platform_performance'),
+    ]
+    governance_status = []
+    for m_type, m_name, m_icon, config_url in enabled_measure_defs:
+        measure = (
+            PlatformGovernanceMeasure.objects
+            .filter(平台=platform_id, 措施类型=m_type, 生效轮次__lte=current_round)
+            .filter(Q(取消轮次__isnull=True) | Q(取消轮次__gt=current_round))
+            .order_by('-生效轮次', '-id')
+            .first()
+        )
+        if not measure:
+            continue
+        summary = '参数待补充'
+        if m_type == 'account_health_rule':
+            health_cfg = AccountHealthConfig.objects.filter(platform_id=platform_id).order_by('-id').first()
+            if health_cfg:
+                summary = (
+                    f"初始={health_cfg.初始健康分}，扣减={health_cfg.每次违规扣减分值}，"
+                    f"恢复={'开' if health_cfg.是否启用恢复机制 else '关'}"
+                )
+        elif m_type == 'clickbait_detection':
+            c_cfg = ClickbaitDetectionConfig.objects.filter(platform_id=platform_id).order_by('-id').first()
+            if c_cfg:
+                summary = f"阈值={c_cfg.判定阈值}，概率={c_cfg.判定概率值}"
+        elif m_type == 'user_report':
+            r_cfg = UserReportConfig.objects.filter(platform_id=platform_id).order_by('-id').first()
+            if r_cfg:
+                summary = f"阈值={r_cfg.举报触发阈值}，审核方式={r_cfg.get_审核方式_display()}"
+        elif m_type == 'traffic_penalty':
+            t_cfg = TrafficPenaltyConfig.objects.filter(platform_id=platform_id).order_by('-id').first()
+            if t_cfg:
+                summary = f"降权系数 α={t_cfg.降权系数alpha}"
+        elif m_type == 'revenue_penalty':
+            rv_cfg = RevenuePenaltyConfig.objects.filter(platform_id=platform_id).order_by('-id').first()
+            if rv_cfg:
+                summary = f"惩罚系数 β={rv_cfg.惩罚系数beta}"
+        elif m_type == 'performance_rule':
+            if current_performance_scheme:
+                summary = (
+                    f"w1={current_performance_scheme.w1_click}, w2={current_performance_scheme.w2_finish}, "
+                    f"w3={current_performance_scheme.w3_collect}, w4={current_performance_scheme.w4_satisfaction}"
+                )
+            else:
+                summary = "暂无生效方案"
+
+        governance_status.append({
+            'type': m_type,
+            'name': m_name,
+            'icon': m_icon,
+            'summary': summary,
+            'config_url': config_url,
+            'effective_round': measure.生效轮次,
+        })
+
+    prev_round = max(0, current_round - 1)
+    writers = WriterAccount.objects.filter(所属平台=platform_id)
+    writer_accounts = set(writers.values_list('账号', flat=True))
+    prev_articles = Article.objects.filter(写手账号__in=writer_accounts, 轮次=prev_round) if prev_round > 0 else Article.objects.none()
+    prev_agg = prev_articles.aggregate(
+        total_click=Sum('点击量'),
+        total_finish=Sum('阅读完成量'),
+        total_collect=Sum('收藏量'),
+    )
+    prev_round_summary = {
+        'round': prev_round,
+        'article_count': prev_articles.count() if prev_round > 0 else 0,
+        'clickbait_count': prev_articles.filter(is_clickbait=True).count() if prev_round > 0 else 0,
+        'report_count': ArticleReport.objects.filter(platform_id=platform_id, 举报轮次=prev_round).count() if prev_round > 0 else 0,
+        'traffic_penalized_articles': ArticleTraffic.objects.filter(platform_id=platform_id, 轮次=prev_round, penalty_applied=True).count() if prev_round > 0 else 0,
+        'violated_writer_count': WriterHealthScoreLog.objects.filter(
+            轮次=prev_round, event_type='violation', 写手账号__in=writer_accounts
+        ).values('写手账号').distinct().count() if prev_round > 0 else 0,
+        'total_click': int(prev_agg.get('total_click') or 0),
+        'total_finish': int(prev_agg.get('total_finish') or 0),
+        'total_collect': int(prev_agg.get('total_collect') or 0),
+    }
+
     return render(request, 'accounts/platform_home.html', {
         'name': account,
         'platform_id': platform_id,
@@ -297,16 +387,14 @@ def platform_home(request):
         'history_cycles': history_cycles,
         'collecting_message': collecting_message,
         'financial_analysis': financial_analysis,
+        'governance_status': governance_status,
+        'prev_round_summary': prev_round_summary,
         'governance_notices': list(
             PlatformGovernanceMeasure.objects
             .filter(平台=platform_id)
             .order_by('-轮次', '-创建时间')[:20]
         ),
-        'current_performance_scheme': (
-            PlatformPerformanceScheme.objects.filter(平台=platform_id, 生效轮次__lte=current_round)
-            .order_by('-生效轮次', '-id')
-            .first()
-        ),
+        'current_performance_scheme': current_performance_scheme,
     })
 
 
