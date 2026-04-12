@@ -1063,9 +1063,94 @@ def _recover_writer_health_for_platform(platform_id: int, round_num: int):
         )
 
 
-def _settle_platform_profit(platform_id: int, round_num: int):
-    # DEPRECATED: 已废弃，待 P-13 实现 _settle_cycle_profit 替代
-    pass
+def _settle_cycle_profit(platform_id: int, cycle_index: int, start_round: int, end_round: int):
+    """按周期结算平台利润并写入 PlatformCycleProfitRecord。"""
+    cfg = _get_effective_profit_config(end_round, platform_id) or ProfitWeightConfig.objects.order_by('-id').first()
+    if not cfg:
+        action_log(
+            f"周期利润结算跳过 platform={platform_id} cycle={cycle_index} "
+            f"rounds={start_round}-{end_round} reason=missing_profit_config"
+        )
+        return None
+
+    writers = WriterAccount.objects.filter(所属平台=platform_id)
+    writer_accounts = set(writers.values_list('账号', flat=True))
+    article_qs = Article.objects.filter(
+        写手账号__in=writer_accounts,
+        轮次__gte=start_round,
+        轮次__lte=end_round,
+    )
+    agg = article_qs.aggregate(
+        total_click=Sum('点击量'),
+        total_collect=Sum('收藏量'),
+        total_finish=Sum('阅读完成量'),
+    )
+    total_click = int(agg.get('total_click') or 0)
+    total_collect = int(agg.get('total_collect') or 0)
+    total_finish = int(agg.get('total_finish') or 0)
+    fans_snapshot = UserAccount.objects.filter(所属平台=platform_id).count()
+
+    # 监管成本预留：当前先置 0
+    supervision_cost_level = '无'
+    supervision_cost_value = Decimal('0')
+
+    click_w = _decimal(cfg.点击率权重)
+    collect_w = _decimal(cfg.收藏率权重)
+    finish_w = _decimal(cfg.阅读完成率权重)
+    fans_w = _decimal(cfg.平台粉丝数权重)
+    supervision_w = _decimal(cfg.监管成本权重)
+
+    profit_total = (
+        _decimal(total_click) * click_w
+        + _decimal(total_collect) * collect_w
+        + _decimal(total_finish) * finish_w
+        + _decimal(fans_snapshot) * fans_w
+        + _decimal(supervision_cost_value) * supervision_w
+    )
+
+    prev = PlatformCycleProfitRecord.objects.filter(
+        platform_id=platform_id, cycle_index=cycle_index - 1
+    ).first()
+    prev_profit = _decimal(prev.profit_total) if prev else None
+
+    weight_snapshot = {
+        'config_id': cfg.pk,
+        '平台': cfg.平台,
+        '生效轮次起': cfg.生效轮次起,
+        '生效轮次止': cfg.生效轮次止,
+        '利润展示窗口轮数': cfg.利润展示窗口轮数,
+        '点击率权重': str(click_w),
+        '收藏率权重': str(collect_w),
+        '阅读完成率权重': str(finish_w),
+        '平台粉丝数权重': str(fans_w),
+        '监管成本权重': str(supervision_w),
+    }
+
+    rec, _ = PlatformCycleProfitRecord.objects.update_or_create(
+        platform_id=platform_id,
+        cycle_index=cycle_index,
+        defaults={
+            'cycle_start_round': start_round,
+            'cycle_end_round': end_round,
+            'total_click': total_click,
+            'total_collect': total_collect,
+            'total_finish': total_finish,
+            'fans_snapshot': fans_snapshot,
+            'supervision_cost_level': supervision_cost_level,
+            'supervision_cost_value': supervision_cost_value,
+            'profit_total': profit_total,
+            'profit_prev_cycle': prev_profit,
+            'weight_config_snapshot': weight_snapshot,
+        },
+    )
+
+    action_log(
+        f"周期利润结算 platform={platform_id} cycle={cycle_index} rounds={start_round}-{end_round} "
+        f"total_click={total_click} total_collect={total_collect} total_finish={total_finish} "
+        f"fans={fans_snapshot} supervision={supervision_cost_level}:{str(supervision_cost_value)} "
+        f"profit_total={str(profit_total)}"
+    )
+    return rec
 
 
 # 问卷选项文案，与前端一致
@@ -1391,7 +1476,7 @@ def logout_view(request):
 def end_round(request):
     """结束本轮：
     1) 按平台结算本轮文章收益（绩效 w1-w4 + 收益惩罚 β），落库 ArticleRevenueSettlement，更新 Article.报酬。
-    2) 结算本轮平台利润（占位，P-13 前为 no-op）。
+    2) 若命中周期末，结算平台周期利润并写 PlatformCycleProfitRecord。
     3) 再将当前模拟轮次 +1，不删任何文章/推送数据。
 
     用户端列表只查当前轮次，故等效于清空列表进入下一轮。可由管理员或脚本在用户们退出后调用。
@@ -1399,18 +1484,33 @@ def end_round(request):
     round_to_settle = _get_current_round()
     # 目前平台编码沿用 0/1；后续扩展更多平台时，可改为从平台表/配置表读取
     settled = []
+    settled_cycle_profit = []
     for pid in (0, 1):
         _recover_writer_health_for_platform(pid, round_to_settle)
         _settle_article_revenue(pid, round_to_settle)
-        _settle_platform_profit(pid, round_to_settle)  # DEPRECATED stub, no-op until P-13
+        cfg = _get_effective_profit_config(round_to_settle, pid) or ProfitWeightConfig.objects.order_by('-id').first()
+        period = int(getattr(cfg, '利润展示窗口轮数', 4) or 4)
+        period = max(1, period)
+        if round_to_settle % period == 0:
+            cycle_index = round_to_settle // period
+            start_round = round_to_settle - period + 1
+            rec = _settle_cycle_profit(pid, cycle_index, start_round, round_to_settle)
+            if rec:
+                settled_cycle_profit.append({'platform_id': pid, 'cycle_index': cycle_index})
         settled.append({'platform_id': pid})
 
     SimulationRound.objects.filter(pk=1).update(当前轮次=F('当前轮次') + 1)
     new_round = _get_current_round()
     action_log(
-        f"结束本轮 round={round_to_settle} -> {new_round} | 已文章收益结算+平台利润占位={settled}"
+        f"结束本轮 round={round_to_settle} -> {new_round} | 已文章收益结算={settled} "
+        f"| 周期利润结算={settled_cycle_profit}"
     )
-    return JsonResponse({'ok': True, 'current_round': new_round, 'settled_profit': settled})
+    return JsonResponse({
+        'ok': True,
+        'current_round': new_round,
+        'settled_revenue': settled,
+        'settled_cycle_profit': settled_cycle_profit,
+    })
 
 
 @require_http_methods(['POST'])
