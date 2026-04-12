@@ -17,6 +17,7 @@ from accounts.models import (
     SimulationRound,
     AccountHealthLevelConfig, WriterNoticeRead, WriterHealthScoreLog,
     ClickbaitDetectionConfig, ClickbaitDetectionResult,
+    TrafficPenaltyConfig, ArticleTraffic,
 )
 
 PLATFORM_NAMES = {0: '平台1', 1: '平台2'}
@@ -289,9 +290,9 @@ def platform_governance(request):
         {
             'type': 'traffic_penalty',
             'name': '流量惩罚',
-            'desc': '对标题党文章进行流量降权（α系数）。',
+            'desc': '对标题党文章进行流量降权（α系数）。需先配置降权系数，再发布启用。',
             'published': _is_measure_published('traffic_penalty'),
-            'config_url': None,
+            'config_url': 'accounts:platform_traffic_penalty',
         },
         {
             'type': 'revenue_penalty',
@@ -340,6 +341,11 @@ def platform_governance_publish(request):
         if cfg:
             config_id = cfg.pk
             content = {'判定阈值': cfg.判定阈值, '判定概率值': str(cfg.判定概率值)}
+    elif measure_type == 'traffic_penalty':
+        cfg = TrafficPenaltyConfig.objects.filter(platform_id=platform_id).order_by('-id').first()
+        if cfg:
+            config_id = cfg.pk
+            content = {'降权系数alpha': str(cfg.降权系数alpha)}
     rec = PlatformGovernanceMeasure.objects.create(
         平台=platform_id,
         轮次=round_num,
@@ -434,6 +440,58 @@ def platform_clickbait_detection_save(request):
     action_log(
         f"平台 {platform_id} 保存标题党检测配置 config_id={cfg.pk} "
         f"阈值={threshold} 概率值={probability} 操作人={account}"
+    )
+    return JsonResponse({'ok': True, 'config_id': cfg.pk})
+
+
+def platform_traffic_penalty(request):
+    """流量惩罚配置页：GET 展示当前配置 + 启用状态。"""
+    account = request.session.get('account', '')
+    if not account or request.session.get('role') != 'platform':
+        return redirect('accounts:login')
+    platform_user = PlatformAccount.objects.filter(账号=account).first()
+    platform_id = getattr(platform_user, '所属平台', 0) if platform_user else 0
+    current_round = _get_current_round()
+    cfg = TrafficPenaltyConfig.objects.filter(platform_id=platform_id).order_by('-id').first()
+    measure = _get_effective_governance_measure(platform_id, 'traffic_penalty', current_round)
+    latest_measure = (
+        PlatformGovernanceMeasure.objects
+        .filter(平台=platform_id, 措施类型='traffic_penalty')
+        .order_by('-轮次', '-id')
+        .first()
+    )
+    is_published = bool(latest_measure and latest_measure.取消轮次 is None)
+    return render(request, 'accounts/platform_traffic_penalty.html', {
+        'name': account,
+        'platform_id': platform_id,
+        'platform_name': PLATFORM_NAMES.get(platform_id, '平台1'),
+        'current_round': current_round,
+        'config': cfg,
+        'is_published': is_published,
+        'is_effective': bool(measure),
+    })
+
+
+@require_http_methods(['POST'])
+def platform_traffic_penalty_save(request):
+    """保存流量惩罚配置参数（α 值）。"""
+    account = request.session.get('account', '')
+    if not account or request.session.get('role') != 'platform':
+        return JsonResponse({'error': '未登录或非平台角色'}, status=403)
+    platform_user = PlatformAccount.objects.filter(账号=account).first()
+    platform_id = getattr(platform_user, '所属平台', 0) if platform_user else 0
+    try:
+        alpha = Decimal(request.POST.get('alpha', '0.50'))
+    except Exception:
+        alpha = Decimal('0.50')
+    alpha = max(Decimal('0'), min(Decimal('1'), alpha))
+    cfg = TrafficPenaltyConfig.objects.create(
+        platform_id=platform_id,
+        降权系数alpha=alpha,
+    )
+    action_log(
+        f"平台 {platform_id} 保存流量惩罚配置 config_id={cfg.pk} "
+        f"alpha={alpha} 操作人={account}"
     )
     return JsonResponse({'ok': True, 'config_id': cfg.pk})
 
@@ -962,10 +1020,13 @@ def _get_writer_article(request):
 def _do_article_push(article, discover_ratio: Decimal = Decimal('0.5')):
     """文章推送：仅推送给与写手同平台的用户。
 
+    流量公式：final_discover_ratio = base_ratio × penalty_coeff(α) × health_tier_coeff(γ)
     - 关注列表：粉丝 100% 推送
-    - 发现列表：非粉丝按 discover_ratio 随机抽样推送
+    - 发现列表：非粉丝按 final_discover_ratio 随机抽样推送
     """
     import random
+    from accounts.models import TrafficPenaltyConfig, ArticleTraffic
+
     writer = WriterAccount.objects.filter(账号=article.写手账号).first()
     if not writer:
         return
@@ -973,6 +1034,24 @@ def _do_article_push(article, discover_ratio: Decimal = Decimal('0.5')):
     users_same_platform = list(UserAccount.objects.filter(所属平台=writer_platform))
     if not users_same_platform:
         return
+    round_num = article.轮次 or 0
+
+    # 流量惩罚系数 α：仅当平台启用流量惩罚且文章为标题党时生效
+    penalty_coeff = Decimal('1.0')
+    penalty_applied = False
+    traffic_penalty_measure = _get_effective_governance_measure(writer_platform, 'traffic_penalty', round_num)
+    if traffic_penalty_measure and article.is_clickbait:
+        tp_cfg = TrafficPenaltyConfig.objects.filter(platform_id=writer_platform).order_by('-id').first()
+        if tp_cfg:
+            penalty_coeff = tp_cfg.降权系数alpha
+            penalty_applied = True
+
+    # 健康档位推流系数 γ
+    gamma = Decimal(str(getattr(writer, '推流系数', Decimal('1.0'))))
+
+    base_ratio = max(Decimal('0'), min(Decimal('1'), _decimal(discover_ratio)))
+    final_ratio = max(Decimal('0'), min(Decimal('1'), base_ratio * penalty_coeff * gamma))
+
     fan_ids = set(
         UserFollowWriter.objects.filter(写手账号=article.写手账号, 用户__in=users_same_platform)
         .values_list('用户_id', flat=True)
@@ -982,19 +1061,37 @@ def _do_article_push(article, discover_ratio: Decimal = Decimal('0.5')):
     for u in fans:
         ArticlePush.objects.get_or_create(文章=article, 用户=u, defaults={'列表类型': 0})
         ArticlePushDetail.objects.get_or_create(文章=article, 用户=u, defaults={'是否粉丝': True})
-    ratio = max(Decimal('0'), min(Decimal('1'), _decimal(discover_ratio)))
-    # 非粉丝按比例：必须随机抽取，不能按表顺序取前 n 个（否则会总是 id 最小的几个）
-    n_non = int(Decimal(len(non_fans)) * ratio)
+    n_non = int(Decimal(len(non_fans)) * final_ratio)
     rng = random.SystemRandom()
     chosen_non_fans = rng.sample(non_fans, min(n_non, len(non_fans)))
     for u in chosen_non_fans:
         ArticlePush.objects.get_or_create(文章=article, 用户=u, defaults={'列表类型': 1})
         ArticlePushDetail.objects.get_or_create(文章=article, 用户=u, defaults={'是否粉丝': False})
-    article.已推送 = ArticlePush.objects.filter(文章=article).count()
+
+    total_pushed = ArticlePush.objects.filter(文章=article).count()
+    article.已推送 = total_pushed
     article.save(update_fields=['已推送'])
+
+    # 写入 ArticleTraffic 记录
+    base_traffic = len(fans) + len(non_fans)
+    final_traffic = len(fans) + len(chosen_non_fans)
+    ArticleTraffic.objects.create(
+        platform_id=writer_platform,
+        文章=article,
+        轮次=round_num,
+        基础流量=base_traffic,
+        penalty_applied=penalty_applied,
+        penalty_coefficient=penalty_coeff,
+        health_tier_coefficient=gamma,
+        最终流量=final_traffic,
+    )
+
     action_log(
-        f"文章推送完成 article_id={article.pk} 平台={writer_platform} fans={len(fans)} non_fans_total={len(non_fans)} "
-        f"discover_ratio={str(ratio)} discover_chosen={len(chosen_non_fans)}"
+        f"文章推送完成 article_id={article.pk} 平台={writer_platform} "
+        f"fans={len(fans)} non_fans_total={len(non_fans)} "
+        f"base_ratio={str(base_ratio)} penalty_coeff={str(penalty_coeff)} "
+        f"gamma={str(gamma)} final_ratio={str(final_ratio)} "
+        f"discover_chosen={len(chosen_non_fans)} total_pushed={total_pushed}"
     )
 
 
