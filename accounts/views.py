@@ -208,25 +208,80 @@ def platform_home(request):
     period = int(getattr(cfg, '利润展示窗口轮数', 4) or 4)
     period = max(1, min(50, period))
 
-    # 利润看板：读取最新完整周期的 PlatformCycleProfitRecord
-    # TODO P-14 将重写此区域
-    current_cycle_index = current_round // period
+    # 利润看板：按“完整周期”展示，非周期末轮次显示上一完整周期并提示“数据收集中”
+    latest_complete_cycle_index = max(0, (current_round - 1) // period)
     current_cycle = (
         PlatformCycleProfitRecord.objects
-        .filter(platform_id=platform_id, cycle_index=current_cycle_index)
+        .filter(platform_id=platform_id, cycle_index=latest_complete_cycle_index)
         .first()
-    ) if current_cycle_index >= 1 else None
-    if not current_cycle and current_cycle_index >= 2:
-        current_cycle = (
-            PlatformCycleProfitRecord.objects
-            .filter(platform_id=platform_id, cycle_index=current_cycle_index - 1)
-            .first()
-        )
+    ) if latest_complete_cycle_index >= 1 else None
 
     cycle_profit_total = _decimal(current_cycle.profit_total) if current_cycle else Decimal('0')
-    cycle_profit_delta = None
+    profit_delta_abs = None
+    profit_delta_pct = None
     if current_cycle and current_cycle.profit_prev_cycle is not None:
-        cycle_profit_delta = cycle_profit_total - _decimal(current_cycle.profit_prev_cycle)
+        prev = _decimal(current_cycle.profit_prev_cycle)
+        profit_delta_abs = cycle_profit_total - prev
+        if prev != 0:
+            profit_delta_pct = (profit_delta_abs / prev) * Decimal('100')
+
+    factor_details = []
+    if current_cycle:
+        snapshot = current_cycle.weight_config_snapshot or {}
+        factor_details = [
+            {
+                'name': '点击量',
+                'raw': current_cycle.total_click,
+                'weight': _decimal(snapshot.get('点击率权重', 0)),
+            },
+            {
+                'name': '收藏量',
+                'raw': current_cycle.total_collect,
+                'weight': _decimal(snapshot.get('收藏率权重', 0)),
+            },
+            {
+                'name': '阅读完成量',
+                'raw': current_cycle.total_finish,
+                'weight': _decimal(snapshot.get('阅读完成率权重', 0)),
+            },
+            {
+                'name': '平台粉丝数',
+                'raw': current_cycle.fans_snapshot,
+                'weight': _decimal(snapshot.get('平台粉丝数权重', 0)),
+            },
+            {
+                'name': '监管成本',
+                'raw': _decimal(current_cycle.supervision_cost_value),
+                'weight': _decimal(snapshot.get('监管成本权重', 0)),
+            },
+        ]
+        for row in factor_details:
+            row['contribution'] = _decimal(row['raw']) * _decimal(row['weight'])
+
+    history_cycles_qs = PlatformCycleProfitRecord.objects.filter(platform_id=platform_id).order_by('-cycle_index', '-id')
+    history_cycles = []
+    for rec in history_cycles_qs:
+        rec_profit = _decimal(rec.profit_total)
+        delta_abs = None
+        delta_pct = None
+        if rec.profit_prev_cycle is not None:
+            prev = _decimal(rec.profit_prev_cycle)
+            delta_abs = rec_profit - prev
+            if prev != 0:
+                delta_pct = (delta_abs / prev) * Decimal('100')
+        history_cycles.append({
+            'cycle_index': rec.cycle_index,
+            'cycle_start_round': rec.cycle_start_round,
+            'cycle_end_round': rec.cycle_end_round,
+            'profit_total': rec_profit,
+            'delta_abs': delta_abs,
+            'delta_pct': delta_pct,
+        })
+
+    collecting_message = None
+    if current_round % period != 0:
+        collecting_message = f"本周期（{(latest_complete_cycle_index * period) + 1}~{(latest_complete_cycle_index + 1) * period}轮）数据收集中"
+    financial_analysis = "财务分析功能待接入（后续由大模型生成）"
 
     return render(request, 'accounts/platform_home.html', {
         'name': account,
@@ -236,7 +291,12 @@ def platform_home(request):
         'profit_period': period,
         'current_cycle': current_cycle,
         'cycle_profit_total': cycle_profit_total,
-        'cycle_profit_delta': cycle_profit_delta,
+        'profit_delta_abs': profit_delta_abs,
+        'profit_delta_pct': profit_delta_pct,
+        'factor_details': factor_details,
+        'history_cycles': history_cycles,
+        'collecting_message': collecting_message,
+        'financial_analysis': financial_analysis,
         'governance_notices': list(
             PlatformGovernanceMeasure.objects
             .filter(平台=platform_id)

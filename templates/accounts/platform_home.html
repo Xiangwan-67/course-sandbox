@@ -11,32 +11,97 @@
 
   <div style="margin-top: 16px; padding: 12px; border: 1px solid #ddd;">
     <strong>利润看板（周期={{ profit_period }} 轮）</strong>
-    {% if cycle_end and cycle_end > 0 %}
-      <div style="margin-top: 6px;">当前展示周期：第 {{ cycle_start }} 轮 ~ 第 {{ cycle_end }} 轮（仅完整周期）</div>
-      <div style="margin-top: 10px; padding: 10px; border: 1px solid #ddd; background: #fafafa;">
-        <div style="font-size: 18px;"><strong>本周期总利润：</strong>{{ cycle_profit_total }}</div>
-        <div style="margin-top: 4px;"><strong>较上一周期增减：</strong>{% if cycle_profit_delta is not None %}{{ cycle_profit_delta }}{% else %}—{% endif %}</div>
+    {% if current_cycle %}
+      <div style="margin-top: 6px;">
+        当前展示周期：第 {{ current_cycle.cycle_start_round }} 轮 ~ 第 {{ current_cycle.cycle_end_round }} 轮
       </div>
-      {% if profits and profits|length > 0 %}
-        <div style="margin-top: 8px;">
-          {% for p in profits %}
-            <div style="padding: 10px; border: 1px solid #eee; margin-top: 8px;">
-              <div><strong>第 {{ p.轮次 }} 轮利润：</strong>{{ p.利润 }}</div>
-              <div><strong>同比增减：</strong>{% if p.同比增减 is not None %}{{ p.同比增减 }}{% else %}—{% endif %}</div>
-              <div style="margin-top: 6px;">
-                <strong>财务分析（占位）：</strong>
-                {% if p.财务分析 %}
-                  <pre style="white-space: pre-wrap; margin: 6px 0 0 0;">{{ p.财务分析|safe }}</pre>
-                {% else %}
-                  <span>（待接入分析逻辑/大模型接口）</span>
-                {% endif %}
-              </div>
-            </div>
-          {% endfor %}
-        </div>
-      {% else %}
-        <div style="margin-top: 8px;">该周期暂无利润记录。请先执行 <code>POST /end-round/</code> 完成本周期结算。</div>
+      {% if collecting_message %}
+        <div style="margin-top: 6px; color: #d48806;">{{ collecting_message }}</div>
       {% endif %}
+      <div style="margin-top: 10px; padding: 10px; border: 1px solid #ddd; background: #fafafa;">
+        <div style="font-size: 18px;"><strong>周期总利润：</strong>{{ cycle_profit_total }}</div>
+        <div style="margin-top: 4px;">
+          <strong>较上一周期变化：</strong>
+          {% if profit_delta_abs is not None %}
+            <span style="color: {% if profit_delta_abs >= 0 %}green{% else %}red{% endif %};">
+              {{ profit_delta_abs }}
+              {% if profit_delta_pct is not None %}
+                （{% if profit_delta_pct >= 0 %}+{% endif %}{{ profit_delta_pct|floatformat:2 }}%）
+              {% endif %}
+            </span>
+          {% else %}
+            —
+          {% endif %}
+        </div>
+      </div>
+
+      <div style="margin-top: 10px;">
+        <strong>因子明细贡献</strong>
+        <table border="1" cellspacing="0" cellpadding="6" style="margin-top: 6px; border-collapse: collapse; width: 100%;">
+          <thead>
+            <tr>
+              <th>因子</th>
+              <th>原始值</th>
+              <th>权重</th>
+              <th>贡献值（原始值 × 权重）</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for f in factor_details %}
+              <tr>
+                <td>{{ f.name }}</td>
+                <td>{{ f.raw }}</td>
+                <td>{{ f.weight }}</td>
+                <td>{{ f.contribution }}</td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="4">暂无因子明细</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div style="margin-top: 12px;">
+        <strong>历史周期利润表</strong>
+        <table border="1" cellspacing="0" cellpadding="6" style="margin-top: 6px; border-collapse: collapse; width: 100%;">
+          <thead>
+            <tr>
+              <th>周期编号</th>
+              <th>起止轮次</th>
+              <th>利润总额</th>
+              <th>同比变化</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for h in history_cycles %}
+              <tr>
+                <td>{{ h.cycle_index }}</td>
+                <td>{{ h.cycle_start_round }} ~ {{ h.cycle_end_round }}</td>
+                <td>{{ h.profit_total }}</td>
+                <td>
+                  {% if h.delta_abs is not None %}
+                    <span style="color: {% if h.delta_abs >= 0 %}green{% else %}red{% endif %};">
+                      {{ h.delta_abs }}
+                      {% if h.delta_pct is not None %}
+                        （{% if h.delta_pct >= 0 %}+{% endif %}{{ h.delta_pct|floatformat:2 }}%）
+                      {% endif %}
+                    </span>
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="4">暂无历史周期记录</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div style="margin-top: 12px; padding: 10px; border: 1px dashed #bbb; background: #fcfcfc;">
+        <strong>财务分析（预留）</strong>
+        <div style="margin-top: 6px;">{{ financial_analysis }}</div>
+      </div>
     {% else %}
       <div style="margin-top: 8px;">本轮尚未形成完整周期，利润看板暂不展示（需要到达周期末轮次）。</div>
     {% endif %}
