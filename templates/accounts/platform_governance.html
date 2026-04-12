@@ -15,6 +15,41 @@
       <div style="padding: 10px; border: 1px solid #eee; margin-top: 10px;">
         <div><strong>{{ m.name }}</strong></div>
         <div style="margin-top: 4px;">{{ m.desc }}</div>
+        {% if m.type == 'account_health_rule' %}
+          {% if m.health_config %}
+            <div style="margin-top: 8px; padding: 8px; border: 1px dashed #ddd; background: #fafafa;">
+              <div><strong>当前健康分配置（只读）</strong></div>
+              <div style="margin-top: 4px;">初始健康分：{{ m.health_config.初始健康分 }}</div>
+              <div>每次违规扣减分值：{{ m.health_config.每次违规扣减分值 }}</div>
+              <div>启用恢复机制：{{ m.health_config.是否启用恢复机制|yesno:"是,否" }}</div>
+              <div>恢复所需连续无违规轮次：{{ m.health_config.恢复所需连续无违规轮次 }}</div>
+              <div>每次恢复分值：{{ m.health_config.每次恢复分值 }}</div>
+              {% if m.health_levels %}
+                <div style="margin-top: 6px;"><strong>档位配置</strong></div>
+                <table border="1" cellspacing="0" cellpadding="4" style="margin-top: 4px; border-collapse: collapse;">
+                  <thead>
+                    <tr>
+                      <th>标签</th>
+                      <th>区间(下界,上界]</th>
+                      <th>推流系数γ</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for lv in m.health_levels %}
+                      <tr>
+                        <td>{{ lv.档位标签|default:"-" }}</td>
+                        <td>({{ lv.下界开 }}, {{ lv.上界闭 }}]</td>
+                        <td>{{ lv.可推流比例 }}</td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              {% endif %}
+            </div>
+          {% else %}
+            <div style="margin-top: 8px; color: #999;">尚未配置健康分参数，发布时将自动创建默认配置。</div>
+          {% endif %}
+        {% endif %}
         <div style="margin-top: 8px;">
           {% if m.published %}
             <span style="color: green; margin-right: 8px;">✔ 已发布</span>

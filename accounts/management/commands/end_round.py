@@ -14,12 +14,13 @@ class Command(BaseCommand):
     help = '结算本轮文章收益后，将当前模拟轮次+1，不删任何数据'
 
     def handle(self, *args, **options):
-        from accounts.views import _get_current_round, _settle_article_revenue, _settle_platform_profit
+        from accounts.views import _get_current_round, _recover_writer_health_for_platform, _settle_article_revenue, _settle_platform_profit
 
         SimulationRound.objects.get_or_create(pk=1, defaults={'当前轮次': 1})
         round_to_settle = _get_current_round()
         settled = []
         for pid in (0, 1):
+            _recover_writer_health_for_platform(pid, round_to_settle)
             _settle_article_revenue(pid, round_to_settle)
             _settle_platform_profit(pid, round_to_settle)
             settled.append({'platform_id': pid})

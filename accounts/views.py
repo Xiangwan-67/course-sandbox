@@ -15,7 +15,7 @@ from accounts.models import (
     UserFollowWriter, UnfollowSurvey, ArticlePush, ArticlePushDetail,
     UserArticleLike, UserArticleCollect, UserArticleReadComplete,
     SimulationRound,
-    AccountHealthLevelConfig, WriterNoticeRead, WriterHealthScoreLog,
+    AccountHealthConfig, AccountHealthLevelConfig, WriterNoticeRead, WriterHealthScoreLog,
     ClickbaitDetectionConfig, ClickbaitDetectionResult,
     TrafficPenaltyConfig, ArticleTraffic,
     UserReportConfig, ArticleReport,
@@ -258,6 +258,10 @@ def platform_governance(request):
     platform_user = PlatformAccount.objects.filter(账号=account).first()
     platform_id = getattr(platform_user, '所属平台', 0) if platform_user else 0
     current_round = _get_current_round()
+    health_cfg = _get_latest_account_health_config(platform_id)
+    health_levels = []
+    if health_cfg:
+        health_levels = _get_effective_health_level_configs(current_round, platform_id=platform_id, config_id=health_cfg.pk)
     def _is_measure_published(m_type):
         rec = (
             PlatformGovernanceMeasure.objects
@@ -274,6 +278,8 @@ def platform_governance(request):
             'desc': '对平台所有写手账号设置健康分（初始100分），按梯度惩罚。发布后进入通知栏。',
             'published': _is_measure_published('account_health_rule'),
             'config_url': None,
+            'health_config': health_cfg,
+            'health_levels': health_levels,
         },
         {
             'type': 'clickbait_detection',
@@ -337,7 +343,24 @@ def platform_governance_publish(request):
     config_id = None
     content = {}
     if measure_type == 'account_health_rule':
-        content = {'initial_score': 100}
+        cfg = _get_latest_account_health_config(platform_id)
+        if not cfg:
+            cfg = AccountHealthConfig.objects.create(
+                platform_id=platform_id,
+                初始健康分=100,
+                每次违规扣减分值=10,
+                是否启用恢复机制=False,
+                恢复所需连续无违规轮次=3,
+                每次恢复分值=5,
+            )
+        config_id = cfg.pk
+        content = {
+            '初始健康分': cfg.初始健康分,
+            '每次违规扣减分值': cfg.每次违规扣减分值,
+            '是否启用恢复机制': cfg.是否启用恢复机制,
+            '恢复所需连续无违规轮次': cfg.恢复所需连续无违规轮次,
+            '每次恢复分值': cfg.每次恢复分值,
+        }
     elif measure_type == 'clickbait_detection':
         cfg = ClickbaitDetectionConfig.objects.filter(platform_id=platform_id).order_by('-id').first()
         if cfg:
@@ -966,23 +989,78 @@ def _get_effective_health_rule(platform_id: int, round_num: int):
     return rec
 
 
-def _get_effective_health_level_configs(round_num: int):
+def _get_latest_account_health_config(platform_id: int):
+    """获取平台最新健康分配置。"""
+    return AccountHealthConfig.objects.filter(platform_id=platform_id).order_by('-id').first()
+
+
+def _get_effective_health_level_configs(round_num: int, platform_id: int = None, config_id: int = None):
     """获取指定轮次生效的健康分档位配置列表（按排序优先）。"""
+    qs = AccountHealthLevelConfig.objects.filter(生效轮次起__lte=round_num)
+    if platform_id is not None:
+        qs = qs.filter(平台=platform_id)
+    if config_id is not None:
+        qs = qs.filter(config_id=config_id)
     return list(
-        AccountHealthLevelConfig.objects
-        .filter(生效轮次起__lte=round_num)
-        .filter(Q(生效轮次止__isnull=True) | Q(生效轮次止__gte=round_num))
+        qs.filter(Q(生效轮次止__isnull=True) | Q(生效轮次止__gte=round_num))
         .order_by('排序', '下界开', '上界闭', 'id')
     )
 
 
-def _match_push_ratio(score: int, configs):
-    """按(下界开,上界闭]匹配可推流比例；未匹配则返回默认 0.7000。"""
+def _resolve_health_tier_and_ratio(score: int, configs):
+    """按(下界开,上界闭]匹配健康档位标签和推流系数；未匹配返回默认值。"""
     s = int(score or 0)
     for c in configs or []:
         if s > int(c.下界开) and s <= int(c.上界闭):
-            return _decimal(c.可推流比例)
-    return Decimal('0.7000')
+            return (c.档位标签 or '', _decimal(c.可推流比例))
+    return ('', Decimal('0.7000'))
+
+
+def _match_push_ratio(score: int, configs):
+    return _resolve_health_tier_and_ratio(score, configs)[1]
+
+
+def _recover_writer_health_for_platform(platform_id: int, round_num: int):
+    """按平台执行健康分恢复机制（在结束本轮时调用）。"""
+    cfg = _get_latest_account_health_config(platform_id)
+    if not cfg or not cfg.是否启用恢复机制:
+        return
+    clean_rounds = max(1, int(cfg.恢复所需连续无违规轮次 or 1))
+    recover_value = max(0, int(cfg.每次恢复分值 or 0))
+    if recover_value <= 0:
+        return
+    start_round = max(1, int(round_num) - clean_rounds + 1)
+    writers = WriterAccount.objects.filter(所属平台=platform_id)
+    level_configs = _get_effective_health_level_configs(round_num, platform_id=platform_id, config_id=cfg.pk)
+    for writer in writers:
+        has_violation = WriterHealthScoreLog.objects.filter(
+            写手账号=writer.账号,
+            event_type='violation',
+            轮次__gte=start_round,
+            轮次__lte=round_num,
+        ).exists()
+        if has_violation:
+            continue
+        before = int(getattr(writer, '健康分', cfg.初始健康分 or 100))
+        after = before + recover_value
+        tier, ratio = _resolve_health_tier_and_ratio(after, level_configs)
+        writer.健康分 = after
+        writer.health_tier = tier
+        writer.推流系数 = ratio
+        writer.健康分最近更新轮次 = round_num
+        writer.save(update_fields=['健康分', 'health_tier', '推流系数', '健康分最近更新轮次'])
+        WriterHealthScoreLog.objects.create(
+            写手账号=writer.账号,
+            轮次=round_num,
+            event_type='recovery',
+            文章编号=None,
+            变更值=recover_value,
+            原因='consecutive_clean_rounds',
+        )
+        action_log(
+            f"健康分恢复 writer={writer.账号} round={round_num} clean_rounds={clean_rounds} "
+            f"recover={recover_value} before={before} after={after} tier={tier} gamma={str(ratio)}"
+        )
 
 
 def _settle_platform_profit(platform_id: int, round_num: int):
@@ -1322,6 +1400,7 @@ def end_round(request):
     # 目前平台编码沿用 0/1；后续扩展更多平台时，可改为从平台表/配置表读取
     settled = []
     for pid in (0, 1):
+        _recover_writer_health_for_platform(pid, round_to_settle)
         _settle_article_revenue(pid, round_to_settle)
         _settle_platform_profit(pid, round_to_settle)  # DEPRECATED stub, no-op until P-13
         settled.append({'platform_id': pid})
@@ -1547,15 +1626,22 @@ def writer_select_body(request):
 
     # 账号健康分规则：扣分
     health_rule = _get_effective_health_rule(writer_platform, round_num)
-    configs = _get_effective_health_level_configs(round_num)
+    health_cfg = _get_latest_account_health_config(writer_platform)
+    health_config_id = health_cfg.pk if health_cfg else None
+    configs = _get_effective_health_level_configs(round_num, platform_id=writer_platform, config_id=health_config_id)
     before_score = int(getattr(writer, '健康分', 100) if writer else 100)
     after_score = before_score
     delta = 0
     if health_rule and clickbait and writer:
-        delta = -10
+        punish_value = int(getattr(health_cfg, '每次违规扣减分值', 10) or 10)
+        delta = -punish_value
         after_score = max(0, before_score + delta)
+        new_tier, new_ratio = _resolve_health_tier_and_ratio(after_score, configs)
         writer.健康分 = after_score
-        writer.save(update_fields=['健康分'])
+        writer.health_tier = new_tier
+        writer.推流系数 = new_ratio
+        writer.健康分最近更新轮次 = round_num
+        writer.save(update_fields=['健康分', 'health_tier', '推流系数', '健康分最近更新轮次'])
         WriterHealthScoreLog.objects.create(
             写手账号=account,
             轮次=round_num,
@@ -1566,12 +1652,12 @@ def writer_select_body(request):
         )
         action_log(
             f"健康分扣减 writer={account} article_id={article.pk} round={round_num} "
-            f"delta={delta} before={before_score} after={after_score}"
+            f"delta={delta} before={before_score} after={after_score} tier={new_tier} gamma={str(new_ratio)}"
         )
 
     ratio = _match_push_ratio(after_score, configs)
     if not health_rule:
-        ratio = _match_push_ratio(100, configs)
+        ratio = _match_push_ratio(before_score, configs)
 
     _do_article_push(article, discover_ratio=ratio)
     return JsonResponse({'ok': True, 'article_id': article.pk})
