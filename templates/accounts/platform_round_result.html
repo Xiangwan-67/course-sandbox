@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{ platform_name }} - 治理结果</title>
+</head>
+<body>
+  <h2>{{ platform_name }} - 治理结果查看页</h2>
+  <p>平台负责人：{{ name }} ｜ 当前轮次：{{ current_round }} ｜ 当前查看轮次：{{ target_round }}</p>
+
+  <div style="margin-top: 12px; padding: 10px; border: 1px solid #ddd;">
+    <strong>切换查看轮次</strong>
+    <form method="get" style="margin-top: 8px;">
+      <label>轮次：</label>
+      <input type="number" name="round" min="1" value="{{ target_round }}" style="width: 100px;" />
+      <button type="submit">查看</button>
+      <a href="{% url 'accounts:platform_round_result' %}" style="margin-left: 8px;">默认查看上一轮</a>
+    </form>
+  </div>
+
+  <div style="margin-top: 12px; padding: 10px; border: 1px solid #ddd;">
+    <strong>统计数据卡片</strong>
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px;">
+      <div style="border: 1px solid #eee; padding: 8px;">本轮发文总数：<strong>{{ stats.article_count }}</strong></div>
+      <div style="border: 1px solid #eee; padding: 8px;">自动检测命中的标题党文章数：<strong>{{ stats.auto_clickbait_articles }}</strong></div>
+      <div style="border: 1px solid #eee; padding: 8px;">用户举报触发审核通过文章数：<strong>{{ stats.approved_report_articles }}</strong></div>
+      <div style="border: 1px solid #eee; padding: 8px;">最终确认违规文章数：<strong>{{ stats.final_violation_articles }}</strong></div>
+      <div style="border: 1px solid #eee; padding: 8px;">受到流量惩罚文章数：<strong>{{ stats.traffic_penalized_articles }}</strong></div>
+      <div style="border: 1px solid #eee; padding: 8px;">受到收益惩罚文章数：<strong>{{ stats.revenue_penalized_articles }}</strong></div>
+      <div style="border: 1px solid #eee; padding: 8px;">受到健康分处罚写手数：<strong>{{ stats.violated_writer_count }}</strong></div>
+      <div style="border: 1px solid #eee; padding: 8px;">平台总点击量：<strong>{{ stats.total_click }}</strong></div>
+      <div style="border: 1px solid #eee; padding: 8px;">平台总阅读完成量：<strong>{{ stats.total_finish }}</strong></div>
+      <div style="border: 1px solid #eee; padding: 8px;">平台总收藏量：<strong>{{ stats.total_collect }}</strong></div>
+      <div style="border: 1px solid #eee; padding: 8px;">平台写手收益总额：<strong>{{ stats.writer_revenue_total }}</strong></div>
+      <div style="border: 1px solid #eee; padding: 8px;">用户举报率（预留）：<strong>{{ stats.user_report_rate }}</strong></div>
+      <div style="border: 1px solid #eee; padding: 8px;">切换平台率（预留）：<strong>{{ stats.platform_switch_rate }}</strong></div>
+    </div>
+  </div>
+
+  <div style="margin-top: 12px; padding: 10px; border: 1px solid #ddd;">
+    <strong>功能包参数回顾（轮次 {{ target_round }}）</strong>
+    <table border="1" cellspacing="0" cellpadding="6" style="margin-top: 8px; border-collapse: collapse; width: 100%;">
+      <thead>
+        <tr>
+          <th>功能包</th>
+          <th>生效轮次</th>
+          <th>参数摘要</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in config_review %}
+          <tr>
+            <td>{{ r.name }}</td>
+            <td>{{ r.effective_round }}</td>
+            <td>{{ r.summary }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="3">该轮暂无生效功能包配置</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <p style="margin-top: 20px;">
+    <a href="{% url 'accounts:platform_home' %}">返回平台首页</a>
+    |
+    <a href="{% url 'accounts:platform_governance' %}">返回平台治理</a>
+    |
+    <a href="{% url 'accounts:logout' %}">退出登录</a>
+  </p>
+</body>
+</html>

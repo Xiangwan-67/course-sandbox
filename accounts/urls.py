@@ -20,6 +20,7 @@ urlpatterns = [
     path('platform/governance/report/save/', views.platform_report_save, name='platform_report_save'),
     path('platform/governance/revenue-penalty/', views.platform_revenue_penalty, name='platform_revenue_penalty'),
     path('platform/governance/revenue-penalty/save/', views.platform_revenue_penalty_save, name='platform_revenue_penalty_save'),
+    path('platform/round-result/', views.platform_round_result, name='platform_round_result'),
     path('platform/performance/', views.platform_performance, name='platform_performance'),
     path('platform/performance/apply/', views.platform_performance_apply, name='platform_performance_apply'),
     path('platform/performance/submit/', views.platform_performance_submit, name='platform_performance_submit'),

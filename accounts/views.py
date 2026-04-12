@@ -398,6 +398,163 @@ def platform_home(request):
     })
 
 
+def platform_round_result(request):
+    """本轮治理结果查看页：支持 ?round=N，默认上一轮。"""
+    account = request.session.get('account', '')
+    if not account or request.session.get('role') != 'platform':
+        return redirect('accounts:login')
+    platform_user = PlatformAccount.objects.filter(账号=account).first()
+    platform_id = getattr(platform_user, '所属平台', 0) if platform_user else 0
+    current_round = _get_current_round()
+    try:
+        target_round = int(request.GET.get('round', current_round - 1))
+    except (TypeError, ValueError):
+        target_round = current_round - 1
+    if target_round < 1:
+        target_round = 1
+    if target_round > current_round:
+        target_round = current_round
+
+    writers = WriterAccount.objects.filter(所属平台=platform_id)
+    writer_accounts = set(writers.values_list('账号', flat=True))
+    round_articles = Article.objects.filter(写手账号__in=writer_accounts, 轮次=target_round)
+    article_count = round_articles.count()
+
+    auto_clickbait_articles = (
+        ClickbaitDetectionResult.objects
+        .filter(平台=platform_id, 轮次=target_round, 检测结果=True)
+        .values('文章_id')
+        .distinct()
+        .count()
+    )
+    approved_report_articles = (
+        ArticleReport.objects
+        .filter(platform_id=platform_id, 举报轮次=target_round, 审核状态='approved')
+        .values('文章_id')
+        .distinct()
+        .count()
+    )
+    final_violation_articles = round_articles.filter(is_clickbait=True).count()
+    traffic_penalized_articles = (
+        ArticleTraffic.objects
+        .filter(platform_id=platform_id, 轮次=target_round, penalty_applied=True)
+        .values('文章_id')
+        .distinct()
+        .count()
+    )
+    revenue_penalized_articles = (
+        ArticleRevenueSettlement.objects
+        .filter(platform_id=platform_id, 轮次=target_round, penalty_applied=True)
+        .values('文章_id')
+        .distinct()
+        .count()
+    )
+    violated_writer_count = (
+        WriterHealthScoreLog.objects
+        .filter(轮次=target_round, event_type='violation', 写手账号__in=writer_accounts)
+        .values('写手账号')
+        .distinct()
+        .count()
+    )
+
+    interaction_agg = round_articles.aggregate(
+        total_click=Sum('点击量'),
+        total_finish=Sum('阅读完成量'),
+        total_collect=Sum('收藏量'),
+    )
+    writer_revenue_total = (
+        ArticleRevenueSettlement.objects
+        .filter(platform_id=platform_id, 轮次=target_round)
+        .aggregate(total=Sum('最终收益'))
+        .get('total') or Decimal('0')
+    )
+
+    enabled_types = [
+        ('clickbait_detection', '标题党检测'),
+        ('user_report', '用户举报'),
+        ('traffic_penalty', '流量惩罚'),
+        ('revenue_penalty', '收益惩罚'),
+        ('account_health_rule', '账号健康分'),
+        ('performance_rule', '绩效规则'),
+    ]
+    config_review = []
+    for m_type, m_name in enabled_types:
+        measure = (
+            PlatformGovernanceMeasure.objects
+            .filter(平台=platform_id, 措施类型=m_type, 生效轮次__lte=target_round)
+            .filter(Q(取消轮次__isnull=True) | Q(取消轮次__gt=target_round))
+            .order_by('-生效轮次', '-id')
+            .first()
+        )
+        if not measure:
+            continue
+        summary = '参数待补充'
+        if m_type == 'clickbait_detection':
+            cfg = ClickbaitDetectionConfig.objects.filter(pk=measure.config_id).first() if measure.config_id else None
+            if cfg:
+                summary = f"阈值={cfg.判定阈值}，概率值={cfg.判定概率值}"
+        elif m_type == 'user_report':
+            cfg = UserReportConfig.objects.filter(pk=measure.config_id).first() if measure.config_id else None
+            if cfg:
+                summary = f"阈值={cfg.举报触发阈值}，审核方式={cfg.get_审核方式_display()}"
+        elif m_type == 'traffic_penalty':
+            cfg = TrafficPenaltyConfig.objects.filter(pk=measure.config_id).first() if measure.config_id else None
+            if cfg:
+                summary = f"降权系数 α={cfg.降权系数alpha}"
+        elif m_type == 'revenue_penalty':
+            cfg = RevenuePenaltyConfig.objects.filter(pk=measure.config_id).first() if measure.config_id else None
+            if cfg:
+                summary = f"惩罚系数 β={cfg.惩罚系数beta}"
+        elif m_type == 'account_health_rule':
+            cfg = AccountHealthConfig.objects.filter(pk=measure.config_id).first() if measure.config_id else None
+            if cfg:
+                summary = (
+                    f"初始={cfg.初始健康分}，扣减={cfg.每次违规扣减分值}，"
+                    f"恢复={'开' if cfg.是否启用恢复机制 else '关'}"
+                )
+        elif m_type == 'performance_rule':
+            cfg = (
+                PlatformPerformanceScheme.objects
+                .filter(平台=platform_id, 生效轮次__lte=target_round, status='active')
+                .order_by('-生效轮次', '-id')
+                .first()
+            )
+            if cfg:
+                summary = f"w1={cfg.w1_click}, w2={cfg.w2_finish}, w3={cfg.w3_collect}, w4={cfg.w4_satisfaction}"
+        config_review.append({
+            'name': m_name,
+            'type': m_type,
+            'summary': summary,
+            'effective_round': measure.生效轮次,
+        })
+
+    stats = {
+        'article_count': article_count,
+        'auto_clickbait_articles': auto_clickbait_articles,
+        'approved_report_articles': approved_report_articles,
+        'final_violation_articles': final_violation_articles,
+        'traffic_penalized_articles': traffic_penalized_articles,
+        'revenue_penalized_articles': revenue_penalized_articles,
+        'violated_writer_count': violated_writer_count,
+        'total_click': int(interaction_agg.get('total_click') or 0),
+        'total_finish': int(interaction_agg.get('total_finish') or 0),
+        'total_collect': int(interaction_agg.get('total_collect') or 0),
+        'writer_revenue_total': writer_revenue_total,
+        'user_report_rate': '—',
+        'platform_switch_rate': '—',
+    }
+
+    return render(request, 'accounts/platform_round_result.html', {
+        'name': account,
+        'platform_id': platform_id,
+        'platform_name': PLATFORM_NAMES.get(platform_id, '平台1'),
+        'current_round': current_round,
+        'target_round': target_round,
+        'stats': stats,
+        'config_review': config_review,
+    })
+
+
 def platform_governance(request):
     """平台治理：展示可选措施。"""
     account = request.session.get('account', '')
