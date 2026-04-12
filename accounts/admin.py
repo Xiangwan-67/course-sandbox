@@ -6,6 +6,8 @@ from .models import (
     Article, Comment, PlatformSwitchSurvey,
     UserFollowWriter, UnfollowSurvey, ArticlePushDetail, ArticlePush,
     UserArticleLike, UserArticleCollect, UserArticleReadComplete,
+    ClickbaitDetectionConfig, ClickbaitDetectionResult,
+    TrafficPenaltyConfig, ArticleTraffic,
 )
 
 
@@ -183,3 +185,33 @@ class UnfollowSurveyAdmin(admin.ModelAdmin):
 class PlatformSwitchSurveyAdmin(admin.ModelAdmin):
     list_display = ['id', '用户编号', '切换前平台', '切换后平台', '轮次', '切换平台原因']
     list_filter = ['轮次', '切换前平台', '切换后平台']
+
+
+# ===== P-03: 标题党检测 + 流量惩罚 Admin =====
+
+@admin.register(ClickbaitDetectionConfig)
+class ClickbaitDetectionConfigAdmin(admin.ModelAdmin):
+    list_display = ['id', 'platform_id', '判定阈值', '判定概率值', '创建时间']
+    list_filter = ['platform_id']
+
+
+@admin.register(ClickbaitDetectionResult)
+class ClickbaitDetectionResultAdmin(admin.ModelAdmin):
+    list_display = ['id', '文章', '轮次', '平台', '标题夸张度X', '内容相关度Y', '自动检测是否执行', '检测结果', '创建时间']
+    list_filter = ['平台', '轮次', '检测结果']
+
+
+@admin.register(TrafficPenaltyConfig)
+class TrafficPenaltyConfigAdmin(admin.ModelAdmin):
+    list_display = ['id', 'platform_id', '降权系数alpha', '创建时间']
+    list_filter = ['platform_id']
+
+
+@admin.register(ArticleTraffic)
+class ArticleTrafficAdmin(admin.ModelAdmin):
+    list_display = [
+        'id', 'platform_id', '文章', '轮次', '基础流量',
+        'penalty_applied', 'penalty_coefficient', 'health_tier_coefficient',
+        '最终流量', '创建时间',
+    ]
+    list_filter = ['platform_id', '轮次', 'penalty_applied']

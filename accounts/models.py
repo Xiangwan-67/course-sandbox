@@ -370,3 +370,73 @@ class UnfollowSurvey(models.Model):
         db_table = '取关拉黑账号问卷调查'
         verbose_name = '取关/拉黑账号问卷调查'
         verbose_name_plural = '取关/拉黑账号问卷调查'
+
+
+# ===== P-03: 标题党检测 + 流量惩罚 模型 =====
+
+class ClickbaitDetectionConfig(models.Model):
+    """标题党检测功能包参数配置（按平台独立）。"""
+
+    platform_id = models.IntegerField()
+    判定阈值 = models.IntegerField(default=2)
+    判定概率值 = models.DecimalField(max_digits=3, decimal_places=2, default=Decimal('0.80'))
+    创建时间 = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = '标题党检测配置'
+        verbose_name = '标题党检测配置'
+        verbose_name_plural = '标题党检测配置'
+        ordering = ['-创建时间', '-id']
+
+
+class ClickbaitDetectionResult(models.Model):
+    """标题党检测结果记录（每篇文章一条）。"""
+
+    文章 = models.ForeignKey(Article, on_delete=models.CASCADE, related_name='标题党检测结果')
+    轮次 = models.PositiveIntegerField()
+    平台 = models.IntegerField()
+    标题夸张度X = models.IntegerField()
+    内容相关度Y = models.IntegerField()
+    自动检测是否执行 = models.BooleanField(default=False)
+    检测结果 = models.BooleanField(null=True, blank=True)  # True=标题党, False=非标题党, null=未执行
+    创建时间 = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = '标题党检测结果'
+        verbose_name = '标题党检测结果'
+        verbose_name_plural = '标题党检测结果'
+        ordering = ['-创建时间', '-id']
+
+
+class TrafficPenaltyConfig(models.Model):
+    """流量惩罚功能包参数配置（按平台独立）。"""
+
+    platform_id = models.IntegerField()
+    降权系数alpha = models.DecimalField(max_digits=3, decimal_places=2, default=Decimal('0.50'))
+    创建时间 = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = '流量惩罚配置'
+        verbose_name = '流量惩罚配置'
+        verbose_name_plural = '流量惩罚配置'
+        ordering = ['-创建时间', '-id']
+
+
+class ArticleTraffic(models.Model):
+    """文章流量分发记录（含惩罚系数明细）。"""
+
+    platform_id = models.IntegerField()
+    文章 = models.ForeignKey(Article, on_delete=models.CASCADE, related_name='流量记录')
+    轮次 = models.PositiveIntegerField()
+    基础流量 = models.PositiveIntegerField(default=0)
+    penalty_applied = models.BooleanField(default=False)
+    penalty_coefficient = models.DecimalField(max_digits=5, decimal_places=4, default=Decimal('1.0000'))
+    health_tier_coefficient = models.DecimalField(max_digits=5, decimal_places=4, default=Decimal('1.0000'))
+    最终流量 = models.PositiveIntegerField(default=0)
+    创建时间 = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = '文章流量记录'
+        verbose_name = '文章流量记录'
+        verbose_name_plural = '文章流量记录'
+        ordering = ['-创建时间', '-id']
