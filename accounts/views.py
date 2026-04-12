@@ -18,6 +18,7 @@ from accounts.models import (
     AccountHealthLevelConfig, WriterNoticeRead, WriterHealthScoreLog,
     ClickbaitDetectionConfig, ClickbaitDetectionResult,
     TrafficPenaltyConfig, ArticleTraffic,
+    UserReportConfig, ArticleReport,
 )
 
 PLATFORM_NAMES = {0: '平台1', 1: '平台2'}
@@ -283,9 +284,9 @@ def platform_governance(request):
         {
             'type': 'user_report',
             'name': '用户举报',
-            'desc': '允许用户举报疑似标题党文章，达到阈值后自动/人工审核。',
+            'desc': '允许用户举报疑似标题党文章，达到阈值后自动/人工审核。需先配置参数再发布。',
             'published': _is_measure_published('user_report'),
-            'config_url': None,
+            'config_url': 'accounts:platform_report',
         },
         {
             'type': 'traffic_penalty',
@@ -346,6 +347,11 @@ def platform_governance_publish(request):
         if cfg:
             config_id = cfg.pk
             content = {'降权系数alpha': str(cfg.降权系数alpha)}
+    elif measure_type == 'user_report':
+        cfg = UserReportConfig.objects.filter(platform_id=platform_id).order_by('-id').first()
+        if cfg:
+            config_id = cfg.pk
+            content = {'举报触发阈值': str(cfg.举报触发阈值), '审核方式': cfg.审核方式}
     rec = PlatformGovernanceMeasure.objects.create(
         平台=platform_id,
         轮次=round_num,
@@ -496,6 +502,62 @@ def platform_traffic_penalty_save(request):
     return JsonResponse({'ok': True, 'config_id': cfg.pk})
 
 
+def platform_report(request):
+    """用户举报机制配置页：GET 展示当前配置 + 启用状态。"""
+    account = request.session.get('account', '')
+    if not account or request.session.get('role') != 'platform':
+        return redirect('accounts:login')
+    platform_user = PlatformAccount.objects.filter(账号=account).first()
+    platform_id = getattr(platform_user, '所属平台', 0) if platform_user else 0
+    current_round = _get_current_round()
+    cfg = UserReportConfig.objects.filter(platform_id=platform_id).order_by('-id').first()
+    measure = _get_effective_governance_measure(platform_id, 'user_report', current_round)
+    latest_measure = (
+        PlatformGovernanceMeasure.objects
+        .filter(平台=platform_id, 措施类型='user_report')
+        .order_by('-轮次', '-id')
+        .first()
+    )
+    is_published = bool(latest_measure and latest_measure.取消轮次 is None)
+    return render(request, 'accounts/platform_report.html', {
+        'name': account,
+        'platform_id': platform_id,
+        'platform_name': PLATFORM_NAMES.get(platform_id, '平台1'),
+        'current_round': current_round,
+        'config': cfg,
+        'is_published': is_published,
+        'is_effective': bool(measure),
+    })
+
+
+@require_http_methods(['POST'])
+def platform_report_save(request):
+    """保存用户举报配置参数（阈值、审核方式）。"""
+    account = request.session.get('account', '')
+    if not account or request.session.get('role') != 'platform':
+        return JsonResponse({'error': '未登录或非平台角色'}, status=403)
+    platform_user = PlatformAccount.objects.filter(账号=account).first()
+    platform_id = getattr(platform_user, '所属平台', 0) if platform_user else 0
+    try:
+        threshold = Decimal(request.POST.get('threshold', '0.30'))
+    except Exception:
+        threshold = Decimal('0.30')
+    threshold = max(Decimal('0'), min(Decimal('1'), threshold))
+    review_method = (request.POST.get('review_method') or 'auto').strip()
+    if review_method not in ('auto', 'manual'):
+        review_method = 'auto'
+    cfg = UserReportConfig.objects.create(
+        platform_id=platform_id,
+        举报触发阈值=threshold,
+        审核方式=review_method,
+    )
+    action_log(
+        f"平台 {platform_id} 保存用户举报配置 config_id={cfg.pk} "
+        f"阈值={threshold} 审核方式={review_method} 操作人={account}"
+    )
+    return JsonResponse({'ok': True, 'config_id': cfg.pk})
+
+
 def platform_performance(request):
     """平台绩效：选择并应用绩效方案（接口占位，后续联动写手报酬）。"""
     account = request.session.get('account', '')
@@ -610,6 +672,92 @@ def _decimal(v) -> Decimal:
         return v if isinstance(v, Decimal) else Decimal(str(v))
     except Exception:
         return Decimal('0')
+
+
+def _submit_user_report(user_account: str, article_id: int, platform_id: int, round_num: int):
+    """用户提交举报 — 落库 ArticleReport。
+    在用户点击举报按钮时调用，若平台已启用用户举报功能包则写入记录。
+    """
+    from accounts.models import ArticleReport
+    rec = ArticleReport.objects.create(
+        platform_id=platform_id,
+        文章_id=article_id,
+        举报人=user_account,
+        举报轮次=round_num,
+        审核状态='pending',
+    )
+    action_log(
+        f"用户举报 user={user_account} article_id={article_id} "
+        f"platform={platform_id} round={round_num} report_id={rec.pk}"
+    )
+    return rec
+
+
+def _process_article_reports(platform_id: int, round_num: int):
+    """每轮结算时处理举报 — 统计举报数、判断是否达阈值、触发审核。
+
+    逻辑：
+    1. 统计每篇文章本轮的 ArticleReport 数量 → 更新 Article.report_count_current_round
+    2. 若 report_count / 阅读次数 >= 阈值：触发审核
+    3. 审核通过：更新 Article.is_clickbait=True, method_user=True
+    4. 无论自动检测还是用户举报，只要 is_clickbait=True，后续已启用的惩罚措施均自动生效。
+
+    由 end_round 结算流程调用。当前为预留接口，待 end_round 改造时集成。
+    """
+    from accounts.models import UserReportConfig, ArticleReport, Article
+    from django.db.models import Count
+
+    cfg = UserReportConfig.objects.filter(platform_id=platform_id).order_by('-id').first()
+    if not cfg:
+        return
+
+    threshold = cfg.举报触发阈值
+    review_method = cfg.审核方式
+
+    reports_by_article = (
+        ArticleReport.objects
+        .filter(platform_id=platform_id, 举报轮次=round_num)
+        .values('文章_id')
+        .annotate(cnt=Count('id'))
+    )
+
+    for item in reports_by_article:
+        art_id = item['文章_id']
+        cnt = item['cnt']
+        try:
+            art = Article.objects.get(pk=art_id)
+        except Article.DoesNotExist:
+            continue
+
+        art.report_count_current_round = cnt
+        art.save(update_fields=['report_count_current_round'])
+
+        read_count = art.点击量 or 1
+        ratio = Decimal(str(cnt)) / Decimal(str(read_count))
+        if ratio >= threshold:
+            confirmed = False
+            if review_method == 'auto':
+                confirmed = True
+            # manual: 留待管理员在 admin 后台审核，此处不自动确认
+
+            if confirmed:
+                art.is_clickbait = True
+                art.method_user = True
+                art.save(update_fields=['is_clickbait', 'method_user'])
+                ArticleReport.objects.filter(
+                    platform_id=platform_id, 文章_id=art_id, 举报轮次=round_num
+                ).update(审核状态='approved')
+                action_log(
+                    f"举报达阈值自动审核通过 article_id={art_id} platform={platform_id} "
+                    f"round={round_num} report_count={cnt} read_count={read_count} "
+                    f"ratio={str(ratio)} threshold={str(threshold)}"
+                )
+            else:
+                action_log(
+                    f"举报达阈值待人工审核 article_id={art_id} platform={platform_id} "
+                    f"round={round_num} report_count={cnt} read_count={read_count} "
+                    f"ratio={str(ratio)} threshold={str(threshold)}"
+                )
 
 
 def _get_effective_governance_measure(platform_id: int, measure_type: str, round_num: int):
@@ -942,6 +1090,38 @@ def user_article_unfollow(request, article_id):
     )
     action_log(f"用户 {user.账号} 取消关注写手 {article.写手账号} 文章 id={article_id} 问卷取关原因={reason!r}")
     return JsonResponse({'ok': True, 'is_following': False, '取关数': article.取关数})
+
+
+@require_http_methods(['POST'])
+def user_article_report(request, article_id):
+    """用户举报文章：若平台已启用用户举报功能包，则写入举报记录。"""
+    account = request.session.get('account', '')
+    if not account or request.session.get('role') != 'user':
+        return JsonResponse({'error': '未登录或非用户角色'}, status=403)
+    try:
+        article = Article.objects.get(pk=article_id)
+    except Article.DoesNotExist:
+        return JsonResponse({'error': '文章不存在'}, status=404)
+
+    user = UserAccount.objects.filter(账号=account).first()
+    if not user:
+        return JsonResponse({'error': '用户不存在'}, status=404)
+
+    platform_id = getattr(user, '所属平台', 0)
+    round_num = _get_current_round()
+
+    measure = _get_effective_governance_measure(platform_id, 'user_report', round_num)
+    if not measure:
+        return JsonResponse({'error': '当前平台未启用用户举报功能'}, status=400)
+
+    already = ArticleReport.objects.filter(
+        platform_id=platform_id, 文章=article, 举报人=account, 举报轮次=round_num
+    ).exists()
+    if already:
+        return JsonResponse({'error': '本轮已举报过该文章'}, status=400)
+
+    rec = _submit_user_report(account, article_id, platform_id, round_num)
+    return JsonResponse({'ok': True, 'report_id': rec.pk})
 
 
 @require_http_methods(['POST'])

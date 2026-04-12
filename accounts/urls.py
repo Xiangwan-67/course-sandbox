@@ -16,6 +16,8 @@ urlpatterns = [
     path('platform/governance/clickbait-detection/save/', views.platform_clickbait_detection_save, name='platform_clickbait_detection_save'),
     path('platform/governance/traffic-penalty/', views.platform_traffic_penalty, name='platform_traffic_penalty'),
     path('platform/governance/traffic-penalty/save/', views.platform_traffic_penalty_save, name='platform_traffic_penalty_save'),
+    path('platform/governance/report/', views.platform_report, name='platform_report'),
+    path('platform/governance/report/save/', views.platform_report_save, name='platform_report_save'),
     path('platform/performance/', views.platform_performance, name='platform_performance'),
     path('platform/performance/apply/', views.platform_performance_apply, name='platform_performance_apply'),
     path('writer/', views.writer_home, name='writer_home'),
@@ -38,5 +40,6 @@ urlpatterns = [
     path('user/article/<int:article_id>/read-complete/', views.user_article_read_complete, name='user_article_read_complete'),
     path('user/article/<int:article_id>/follow/', views.user_article_follow, name='user_article_follow'),
     path('user/article/<int:article_id>/unfollow/', views.user_article_unfollow, name='user_article_unfollow'),
+    path('user/article/<int:article_id>/report/', views.user_article_report, name='user_article_report'),
     path('user/article/<int:article_id>/comment/', views.user_article_add_comment, name='user_article_add_comment'),
 ]
