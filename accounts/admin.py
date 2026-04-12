@@ -1,6 +1,6 @@
 from django.contrib import admin
 from .models import (
-    WriterAccount, UserAccount, PlatformAccount, ProfitWeightConfig, PlatformRoundProfit,
+    WriterAccount, UserAccount, PlatformAccount, ProfitWeightConfig, PlatformCycleProfitRecord,
     PlatformGovernanceMeasure, PlatformPerformanceScheme,
     AccountHealthLevelConfig, WriterNoticeRead, WriterHealthScoreLog,
     Article, Comment, PlatformSwitchSurvey,
@@ -27,23 +27,27 @@ class PlatformAccountAdmin(admin.ModelAdmin):
 @admin.register(ProfitWeightConfig)
 class ProfitWeightConfigAdmin(admin.ModelAdmin):
     list_display = [
-        'id', '生效轮次起', '生效轮次止',
-        '点击率权重', '收藏率权重', '阅读完成率权重', '平台粉丝数权重',
-        '利润展示窗口轮数', '创建时间',
+        'id', '平台', '生效轮次起', '生效轮次止',
+        '点击率权重', '收藏率权重', '阅读完成率权重', '平台粉丝数权重', '监管成本权重',
+        '利润展示窗口轮数', '配置人', '配置时间', '创建时间',
     ]
+    list_filter = ['平台']
 
 
-@admin.register(PlatformRoundProfit)
-class PlatformRoundProfitAdmin(admin.ModelAdmin):
+@admin.register(PlatformCycleProfitRecord)
+class PlatformCycleProfitRecordAdmin(admin.ModelAdmin):
     list_display = [
-        'id', '平台', '轮次', '利润', '同比增减', '监管成本', '监管成本档位', '权重配置', '创建时间',
+        'id', 'platform_id', 'cycle_index', 'cycle_start_round', 'cycle_end_round',
+        'total_click', 'total_collect', 'total_finish', 'fans_snapshot',
+        'supervision_cost_level', 'supervision_cost_value',
+        'profit_total', 'profit_prev_cycle', 'calculated_at',
     ]
-    list_filter = ['平台', '轮次']
+    list_filter = ['platform_id', 'cycle_index']
 
 
 @admin.register(PlatformGovernanceMeasure)
 class PlatformGovernanceMeasureAdmin(admin.ModelAdmin):
-    list_display = ['id', '平台', '轮次', '生效轮次', '取消轮次', '措施类型', '发布人账号', '创建时间']
+    list_display = ['id', '平台', '轮次', '生效轮次', '取消轮次', '措施类型', 'config_id', '发布人账号', '创建时间']
     list_filter = ['平台', '轮次', '措施类型', '生效轮次', '取消轮次']
 
 

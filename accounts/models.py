@@ -51,11 +51,9 @@ class PlatformAccount(models.Model):
 
 
 class ProfitWeightConfig(models.Model):
-    """平台利润计算：因子权重配置（管理员维护，全平台一致）。
+    """平台利润计算：因子权重配置（管理员维护，按平台独立配置）。"""
 
-    说明：监管成本目前默认按 0 处理，不在此表配置；未来由监管机构对平台输出档位/成本后，
-    在“利润结算/落库”环节注入并保存到利润记录表。
-    """
+    平台 = models.IntegerField(null=True, blank=True)  # 0=平台1, 1=平台2；null 表示旧全局配置
 
     生效轮次起 = models.PositiveIntegerField(default=1)
     生效轮次止 = models.PositiveIntegerField(null=True, blank=True)
@@ -64,8 +62,11 @@ class ProfitWeightConfig(models.Model):
     收藏率权重 = models.DecimalField(max_digits=12, decimal_places=6, default=0)
     阅读完成率权重 = models.DecimalField(max_digits=12, decimal_places=6, default=0)
     平台粉丝数权重 = models.DecimalField(max_digits=12, decimal_places=6, default=0)
+    监管成本权重 = models.DecimalField(max_digits=10, decimal_places=4, default=0)
 
-    利润展示窗口轮数 = models.PositiveIntegerField(default=4)  # 平台首页展示最近 N 轮利润
+    利润展示窗口轮数 = models.PositiveIntegerField(default=4)
+    配置人 = models.CharField(max_length=100, blank=True)
+    配置时间 = models.DateTimeField(null=True, blank=True)
     备注 = models.TextField(blank=True)
     创建时间 = models.DateTimeField(auto_now_add=True)
 
@@ -76,47 +77,34 @@ class ProfitWeightConfig(models.Model):
         ordering = ['-创建时间', '-id']
 
 
-class PlatformRoundProfit(models.Model):
-    """平台每轮利润记录（平台+轮次唯一）。
+class PlatformCycleProfitRecord(models.Model):
+    """平台周期利润记录（每周期末一次性计算）。"""
 
-    说明：
-    - 利润值为派生结果，落库时同时保存因子快照，便于后续回放/对账/追溯。
-    - 监管成本当前默认按 0 处理；未来由监管机构对平台输出档位/成本后，再写入对应字段。
-    """
+    platform_id = models.IntegerField()
+    cycle_index = models.PositiveIntegerField()  # 第几个周期
+    cycle_start_round = models.PositiveIntegerField()
+    cycle_end_round = models.PositiveIntegerField()
 
-    平台 = models.IntegerField()  # 0=平台1, 1=平台2（后续可扩展更多平台编码）
-    轮次 = models.PositiveIntegerField()
+    total_click = models.PositiveIntegerField(default=0)
+    total_collect = models.PositiveIntegerField(default=0)
+    total_finish = models.PositiveIntegerField(default=0)
+    fans_snapshot = models.PositiveIntegerField(default=0)
 
-    利润 = models.DecimalField(max_digits=18, decimal_places=6, default=0)
-    同比增减 = models.DecimalField(max_digits=18, decimal_places=6, null=True, blank=True)
+    supervision_cost_level = models.CharField(max_length=32, blank=True)
+    supervision_cost_value = models.DecimalField(max_digits=18, decimal_places=6, default=0)
 
-    # 因子快照（示例字段：sum_click/sum_collect/sum_read_complete/sum_pushed、各比率、粉丝数等）
-    因子快照 = models.JSONField(default=dict, blank=True)
+    profit_total = models.DecimalField(max_digits=18, decimal_places=6, default=0)
+    profit_prev_cycle = models.DecimalField(max_digits=18, decimal_places=6, null=True, blank=True)
 
-    # 配置引用：落库时指向当轮使用的权重配置（可空表示未记录）
-    权重配置 = models.ForeignKey(
-        ProfitWeightConfig,
-        null=True,
-        blank=True,
-        on_delete=models.SET_NULL,
-        related_name='利润记录',
-    )
-
-    # 监管成本（当前默认 0）
-    监管成本档位 = models.CharField(max_length=32, blank=True)  # 未来可存档位编码/说明
-    监管成本 = models.IntegerField(default=0)
-
-    # 财务分析接口占位：未来可写入大模型分析结果
-    财务分析 = models.JSONField(default=dict, blank=True)
-
-    创建时间 = models.DateTimeField(auto_now_add=True)
+    calculated_at = models.DateTimeField(auto_now_add=True)
+    weight_config_snapshot = models.JSONField(default=dict, blank=True)
 
     class Meta:
-        db_table = '平台每轮利润'
-        verbose_name = '平台每轮利润'
-        verbose_name_plural = '平台每轮利润'
-        unique_together = [['平台', '轮次']]
-        ordering = ['-轮次', '平台', '-id']
+        db_table = '平台周期利润记录'
+        verbose_name = '平台周期利润记录'
+        verbose_name_plural = '平台周期利润记录'
+        unique_together = [['platform_id', 'cycle_index']]
+        ordering = ['-cycle_index', 'platform_id', '-id']
 
 
 class PlatformGovernanceMeasure(models.Model):
@@ -124,6 +112,11 @@ class PlatformGovernanceMeasure(models.Model):
 
     MEASURE_TYPE_CHOICES = [
         ('account_health_rule', '账号健康分规则'),
+        ('clickbait_detection', '标题党检测'),
+        ('user_report', '用户举报机制'),
+        ('traffic_penalty', '流量惩罚'),
+        ('revenue_penalty', '收益惩罚'),
+        ('performance_rule', '绩效规则'),
     ]
 
     平台 = models.IntegerField()  # 0=平台1, 1=平台2
@@ -132,6 +125,7 @@ class PlatformGovernanceMeasure(models.Model):
     取消轮次 = models.PositiveIntegerField(null=True, blank=True)
     措施类型 = models.CharField(max_length=64, choices=MEASURE_TYPE_CHOICES)
     措施内容 = models.JSONField(default=dict, blank=True)  # 规则细则占位
+    config_id = models.IntegerField(null=True, blank=True)  # 指向各功能包参数子表 PK
     发布人账号 = models.CharField(max_length=64, blank=True)
     创建时间 = models.DateTimeField(auto_now_add=True)
 

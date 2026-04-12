@@ -11,7 +11,7 @@ import json, time
 from accounts.action_logger import action_log
 from accounts.db_retry import retry_on_db_locked
 from accounts.models import (
-    WriterAccount, UserAccount, PlatformAccount, ProfitWeightConfig, PlatformRoundProfit, PlatformGovernanceMeasure, PlatformPerformanceScheme, Article, Comment, PlatformSwitchSurvey,
+    WriterAccount, UserAccount, PlatformAccount, ProfitWeightConfig, PlatformCycleProfitRecord, PlatformGovernanceMeasure, PlatformPerformanceScheme, Article, Comment, PlatformSwitchSurvey,
     UserFollowWriter, UnfollowSurvey, ArticlePush, ArticlePushDetail,
     UserArticleLike, UserArticleCollect, UserArticleReadComplete,
     SimulationRound,
@@ -200,43 +200,37 @@ def platform_home(request):
     platform_id = getattr(platform_user, '所属平台', 0) if platform_user else 0
     current_round = _get_current_round()
 
-    cfg = _get_effective_profit_config(current_round) or ProfitWeightConfig.objects.order_by('-id').first()
+    cfg = _get_effective_profit_config(current_round, platform_id) or ProfitWeightConfig.objects.order_by('-id').first()
     period = int(getattr(cfg, '利润展示窗口轮数', 4) or 4)
     period = max(1, min(50, period))
 
-    # 利润看板：只展示“完整周期”内的利润
-    # 例如 period=4：第4轮展示1-4；第8轮展示5-8；第6轮展示1-4（上一个完整周期）
-    cycle_end = (current_round // period) * period
-    cycle_start = max(1, cycle_end - period + 1) if cycle_end > 0 else 1
-    profits = []
-    if cycle_end >= 1:
-        profits = list(
-            PlatformRoundProfit.objects
-            .filter(平台=platform_id, 轮次__gte=cycle_start, 轮次__lte=cycle_end)
-            .order_by('轮次')
+    # 利润看板：读取最新完整周期的 PlatformCycleProfitRecord
+    # TODO P-14 将重写此区域
+    current_cycle_index = current_round // period
+    current_cycle = (
+        PlatformCycleProfitRecord.objects
+        .filter(platform_id=platform_id, cycle_index=current_cycle_index)
+        .first()
+    ) if current_cycle_index >= 1 else None
+    if not current_cycle and current_cycle_index >= 2:
+        current_cycle = (
+            PlatformCycleProfitRecord.objects
+            .filter(platform_id=platform_id, cycle_index=current_cycle_index - 1)
+            .first()
         )
-    cycle_profit_total = sum([_decimal(p.利润) for p in profits], Decimal('0'))
 
-    prev_cycle_total = None
-    prev_cycle_end = cycle_end - period
-    if prev_cycle_end >= 1:
-        prev_cycle_start = max(1, prev_cycle_end - period + 1)
-        prev_profits = list(
-            PlatformRoundProfit.objects
-            .filter(平台=platform_id, 轮次__gte=prev_cycle_start, 轮次__lte=prev_cycle_end)
-            .order_by('轮次')
-        )
-        prev_cycle_total = sum([_decimal(p.利润) for p in prev_profits], Decimal('0'))
-    cycle_profit_delta = (cycle_profit_total - prev_cycle_total) if prev_cycle_total is not None else None
+    cycle_profit_total = _decimal(current_cycle.profit_total) if current_cycle else Decimal('0')
+    cycle_profit_delta = None
+    if current_cycle and current_cycle.profit_prev_cycle is not None:
+        cycle_profit_delta = cycle_profit_total - _decimal(current_cycle.profit_prev_cycle)
+
     return render(request, 'accounts/platform_home.html', {
         'name': account,
         'platform_id': platform_id,
         'platform_name': PLATFORM_NAMES.get(platform_id, '平台1'),
         'current_round': current_round,
-        'profits': profits,
         'profit_period': period,
-        'cycle_start': cycle_start,
-        'cycle_end': cycle_end,
+        'current_cycle': current_cycle,
         'cycle_profit_total': cycle_profit_total,
         'cycle_profit_delta': cycle_profit_delta,
         'governance_notices': list(
@@ -441,15 +435,18 @@ def _get_current_round():
     return obj.当前轮次
 
 
-def _get_effective_profit_config(round_num: int):
+def _get_effective_profit_config(round_num: int, platform_id: int = None):
     """获取指定轮次生效的利润权重配置（若无则返回 None）。"""
-    return (
+    qs = (
         ProfitWeightConfig.objects
         .filter(生效轮次起__lte=round_num)
         .filter(Q(生效轮次止__isnull=True) | Q(生效轮次止__gte=round_num))
-        .order_by('-生效轮次起', '-id')
-        .first()
     )
+    if platform_id is not None:
+        result = qs.filter(平台=platform_id).order_by('-生效轮次起', '-id').first()
+        if result:
+            return result
+    return qs.order_by('-生效轮次起', '-id').first()
 
 
 def _decimal(v) -> Decimal:
@@ -506,84 +503,8 @@ def _match_push_ratio(score: int, configs):
 
 
 def _settle_platform_profit(platform_id: int, round_num: int):
-    """结算并落库平台某轮利润（监管成本默认 0）。返回 PlatformRoundProfit 对象。"""
-    writer_accounts = list(
-        WriterAccount.objects.filter(所属平台=platform_id).values_list('账号', flat=True)
-    )
-    agg = (
-        Article.objects
-        .filter(轮次=round_num, 写手账号__in=writer_accounts)
-        .aggregate(
-            sum_click=Sum('点击量'),
-            sum_collect=Sum('收藏量'),
-            sum_read_complete=Sum('阅读完成量'),
-            sum_pushed=Sum('已推送'),
-        )
-    )
-    sum_click = int(agg.get('sum_click') or 0)
-    sum_collect = int(agg.get('sum_collect') or 0)
-    sum_read_complete = int(agg.get('sum_read_complete') or 0)
-    sum_pushed = int(agg.get('sum_pushed') or 0)
-
-    click_rate = Decimal(sum_click) / Decimal(max(1, sum_pushed))
-    collect_rate = Decimal(sum_collect) / Decimal(max(1, sum_click))
-    read_complete_rate = Decimal(sum_read_complete) / Decimal(max(1, sum_click))
-
-    platform_fans = int(
-        WriterAccount.objects.filter(所属平台=platform_id).aggregate(s=Sum('粉丝数')).get('s') or 0
-    )
-
-    cfg = _get_effective_profit_config(round_num)
-    w_click = _decimal(getattr(cfg, '点击率权重', 0))
-    w_collect = _decimal(getattr(cfg, '收藏率权重', 0))
-    w_read = _decimal(getattr(cfg, '阅读完成率权重', 0))
-    w_fans = _decimal(getattr(cfg, '平台粉丝数权重', 0))
-
-    regulator_cost = 0
-    profit = (click_rate * w_click) + (collect_rate * w_collect) + (read_complete_rate * w_read) + (Decimal(platform_fans) * w_fans) - Decimal(regulator_cost)
-
-    prev = PlatformRoundProfit.objects.filter(平台=platform_id, 轮次=round_num - 1).first()
-    yoy = (profit - _decimal(prev.利润)) if prev else None
-
-    factor_snapshot = {
-        'round': round_num,
-        'platform_id': platform_id,
-        'sum_click': sum_click,
-        'sum_collect': sum_collect,
-        'sum_read_complete': sum_read_complete,
-        'sum_pushed': sum_pushed,
-        'click_rate': str(click_rate),
-        'collect_rate': str(collect_rate),
-        'read_complete_rate': str(read_complete_rate),
-        'platform_fans': platform_fans,
-        'weights': {
-            '点击率权重': str(w_click),
-            '收藏率权重': str(w_collect),
-            '阅读完成率权重': str(w_read),
-            '平台粉丝数权重': str(w_fans),
-        },
-        'regulator_cost': regulator_cost,
-    }
-
-    obj, created = PlatformRoundProfit.objects.get_or_create(
-        平台=platform_id,
-        轮次=round_num,
-        defaults={
-            '利润': profit,
-            '同比增减': yoy,
-            '因子快照': factor_snapshot,
-            '权重配置': cfg,
-            '监管成本': regulator_cost,
-        }
-    )
-    if not created:
-        obj.利润 = profit
-        obj.同比增减 = yoy
-        obj.因子快照 = factor_snapshot
-        obj.权重配置 = cfg
-        obj.监管成本 = regulator_cost
-        obj.save(update_fields=['利润', '同比增减', '因子快照', '权重配置', '监管成本'])
-    return obj
+    # DEPRECATED: 已废弃，待 P-13 实现 _settle_cycle_profit 替代
+    pass
 
 
 # 问卷选项文案，与前端一致
@@ -885,8 +806,8 @@ def end_round(request):
     # 目前平台编码沿用 0/1；后续扩展更多平台时，可改为从平台表/配置表读取
     settled = []
     for pid in (0, 1):
-        rec = _settle_platform_profit(pid, round_to_settle)
-        settled.append({'platform_id': pid, 'profit_id': rec.pk})
+        _settle_platform_profit(pid, round_to_settle)  # DEPRECATED stub, no-op until P-13
+        settled.append({'platform_id': pid})
 
     SimulationRound.objects.filter(pk=1).update(当前轮次=F('当前轮次') + 1)
     new_round = _get_current_round()
