@@ -87,8 +87,31 @@ class WriterHealthScoreLogAdmin(admin.ModelAdmin):
 
 @admin.register(PlatformPerformanceScheme)
 class PlatformPerformanceSchemeAdmin(admin.ModelAdmin):
-    list_display = ['id', '平台', '生效轮次', '方案编号', '发布人账号', '创建时间']
-    list_filter = ['平台', '生效轮次', '方案编号']
+    list_display = [
+        'id', '平台', '生效轮次', '方案编号',
+        'w1_click', 'w2_finish', 'w3_collect', 'w4_satisfaction',
+        'status', '管理员确认账号', '管理员确认时间',
+        '发布人账号', '创建时间',
+    ]
+    list_filter = ['平台', '生效轮次', '方案编号', 'status']
+    actions = ['confirm_scheme']
+
+    @admin.action(description='确认选中的绩效方案生效')
+    def confirm_scheme(self, request, queryset):
+        from django.utils import timezone
+        from accounts.action_logger import action_log
+        admin_account = getattr(request.user, 'username', str(request.user))
+        now = timezone.now()
+        for scheme in queryset.filter(status='pending'):
+            scheme.status = 'active'
+            scheme.管理员确认账号 = admin_account
+            scheme.管理员确认时间 = now
+            scheme.save(update_fields=['status', '管理员确认账号', '管理员确认时间'])
+            action_log(
+                f"管理员确认绩效方案生效 | 管理员={admin_account} 方案ID={scheme.pk} "
+                f"平台={scheme.平台} 生效轮次={scheme.生效轮次} "
+                f"w1={scheme.w1_click} w2={scheme.w2_finish} w3={scheme.w3_collect} w4={scheme.w4_satisfaction}"
+            )
 
 
 @admin.register(Article)

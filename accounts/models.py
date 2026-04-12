@@ -238,8 +238,23 @@ class PlatformPerformanceScheme(models.Model):
     平台 = models.IntegerField()  # 0=平台1, 1=平台2
     生效轮次 = models.PositiveIntegerField()
     方案编号 = models.CharField(max_length=64, choices=SCHEME_CODE_CHOICES)
-    方案内容 = models.JSONField(default=dict, blank=True)  # 预留：未来可存放对报酬函数的权重调整等
+    方案内容 = models.JSONField(default=dict, blank=True)
     发布人账号 = models.CharField(max_length=64, blank=True)
+
+    SCHEME_STATUS_CHOICES = [
+        ('pending', '待审核'),
+        ('active', '已生效'),
+        ('cancelled', '已取消'),
+    ]
+
+    w1_click = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    w2_finish = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    w3_collect = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    w4_satisfaction = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True, default=0)
+    status = models.CharField(max_length=20, choices=SCHEME_STATUS_CHOICES, default='pending')
+    管理员确认账号 = models.CharField(max_length=100, blank=True)
+    管理员确认时间 = models.DateTimeField(null=True, blank=True)
+
     创建时间 = models.DateTimeField(auto_now_add=True)
 
     class Meta:
