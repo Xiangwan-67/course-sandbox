@@ -13,6 +13,9 @@ class WriterAccount(models.Model):
     粉丝数 = models.PositiveIntegerField(default=0)
     # 账号健康分：跨轮次累计，默认 100
     健康分 = models.IntegerField(default=100)
+    health_tier = models.CharField(max_length=50, blank=True, default='')
+    推流系数 = models.DecimalField(max_digits=5, decimal_places=4, default=Decimal('1.0000'))
+    健康分最近更新轮次 = models.IntegerField(null=True, blank=True)
 
     class Meta:
         db_table = '写手'
@@ -248,6 +251,12 @@ class Article(models.Model):
     取关数 = models.PositiveIntegerField(default=0)   # 通过该文章取消关注写手的用户数
     阅读完成量 = models.PositiveIntegerField(default=0)
     报酬 = models.IntegerField(default=0)   # 该文章对应报酬，历史列表中展示
+
+    is_clickbait = models.BooleanField(null=True, blank=True, default=None)
+    clickbait_detected_at = models.IntegerField(null=True, blank=True)
+    method_auto_rule = models.BooleanField(null=True, blank=True, default=None)
+    method_user = models.BooleanField(null=True, blank=True, default=None)
+    report_count_current_round = models.IntegerField(default=0)
 
     class Meta:
         db_table = '文章'

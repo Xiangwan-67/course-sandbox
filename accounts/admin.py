@@ -11,7 +11,7 @@ from .models import (
 
 @admin.register(WriterAccount)
 class WriterAccountAdmin(admin.ModelAdmin):
-    list_display = ['id', '账号', '密码', '所属平台', '粉丝数', '健康分']
+    list_display = ['id', '账号', '密码', '所属平台', '粉丝数', '健康分', 'health_tier', '推流系数']
 
 
 @admin.register(UserAccount)
@@ -79,8 +79,14 @@ class PlatformPerformanceSchemeAdmin(admin.ModelAdmin):
 
 @admin.register(Article)
 class ArticleAdmin(admin.ModelAdmin):
-    list_display = ['id', '写手账号', '标题', '标题夸张度_初始值', '标题夸张度_校准值', '正文', '内容相关度_初始值', '内容相关度_校准值', '已推送', '点击量', '点赞量', '收藏量', '吸粉数', '取关数', '阅读完成量', '创建时间']
-    list_filter = ['写手账号']
+    list_display = [
+        'id', '写手账号', '标题', '标题夸张度_初始值', '标题夸张度_校准值', '正文',
+        '内容相关度_初始值', '内容相关度_校准值', '已推送', '点击量', '点赞量', '收藏量',
+        '吸粉数', '取关数', '阅读完成量', '报酬',
+        'is_clickbait', 'method_auto_rule', 'method_user', 'report_count_current_round',
+        '创建时间',
+    ]
+    list_filter = ['写手账号', 'is_clickbait']
     search_fields = ['标题', '正文']
 
 
