@@ -8,6 +8,8 @@ from .models import (
     UserArticleLike, UserArticleCollect, UserArticleReadComplete,
     ClickbaitDetectionConfig, ClickbaitDetectionResult,
     TrafficPenaltyConfig, ArticleTraffic,
+    UserReportConfig, ArticleReport,
+    RevenuePenaltyConfig, ArticleRevenueSettlement,
 )
 
 
@@ -213,5 +215,36 @@ class ArticleTrafficAdmin(admin.ModelAdmin):
         'id', 'platform_id', '文章', '轮次', '基础流量',
         'penalty_applied', 'penalty_coefficient', 'health_tier_coefficient',
         '最终流量', '创建时间',
+    ]
+    list_filter = ['platform_id', '轮次', 'penalty_applied']
+
+
+# ===== P-04: 用户举报 + 收益惩罚 + 收益结算 Admin =====
+
+@admin.register(UserReportConfig)
+class UserReportConfigAdmin(admin.ModelAdmin):
+    list_display = ['id', 'platform_id', '举报触发阈值', '审核方式', '创建时间']
+    list_filter = ['platform_id', '审核方式']
+
+
+@admin.register(ArticleReport)
+class ArticleReportAdmin(admin.ModelAdmin):
+    list_display = ['id', 'platform_id', '文章', '举报人', '举报轮次', '审核状态', '创建时间']
+    list_filter = ['platform_id', '举报轮次', '审核状态']
+
+
+@admin.register(RevenuePenaltyConfig)
+class RevenuePenaltyConfigAdmin(admin.ModelAdmin):
+    list_display = ['id', 'platform_id', '惩罚系数beta', '创建时间']
+    list_filter = ['platform_id']
+
+
+@admin.register(ArticleRevenueSettlement)
+class ArticleRevenueSettlementAdmin(admin.ModelAdmin):
+    list_display = [
+        'id', 'platform_id', '写手账号', '文章', '轮次',
+        '点击量', '阅读完成量', '收藏量', '满意度均分',
+        'w1', 'w2', 'w3', 'w4',
+        '原始收益', 'penalty_applied', 'penalty_coefficient', '最终收益', '结算时间',
     ]
     list_filter = ['platform_id', '轮次', 'penalty_applied']

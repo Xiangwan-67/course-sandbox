@@ -440,3 +440,94 @@ class ArticleTraffic(models.Model):
         verbose_name = '文章流量记录'
         verbose_name_plural = '文章流量记录'
         ordering = ['-创建时间', '-id']
+
+
+# ===== P-04: 用户举报 + 收益惩罚 + 收益结算 模型 =====
+
+class UserReportConfig(models.Model):
+    """用户举报机制功能包参数配置（按平台独立）。"""
+
+    REVIEW_METHOD_CHOICES = [
+        ('auto', '自动审核'),
+        ('manual', '人工审核'),
+    ]
+
+    platform_id = models.IntegerField()
+    举报触发阈值 = models.DecimalField(max_digits=3, decimal_places=2, default=Decimal('0.30'))
+    审核方式 = models.CharField(max_length=20, choices=REVIEW_METHOD_CHOICES, default='auto')
+    创建时间 = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = '用户举报配置'
+        verbose_name = '用户举报配置'
+        verbose_name_plural = '用户举报配置'
+        ordering = ['-创建时间', '-id']
+
+
+class ArticleReport(models.Model):
+    """用户举报记录。"""
+
+    REVIEW_STATUS_CHOICES = [
+        ('pending', '待审核'),
+        ('approved', '审核通过'),
+        ('rejected', '审核驳回'),
+    ]
+
+    platform_id = models.IntegerField()
+    文章 = models.ForeignKey(Article, on_delete=models.CASCADE, related_name='举报记录')
+    举报人 = models.CharField(max_length=100)
+    举报轮次 = models.PositiveIntegerField()
+    审核状态 = models.CharField(max_length=20, choices=REVIEW_STATUS_CHOICES, default='pending')
+    创建时间 = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = '用户举报记录'
+        verbose_name = '用户举报记录'
+        verbose_name_plural = '用户举报记录'
+        ordering = ['-创建时间', '-id']
+
+
+class RevenuePenaltyConfig(models.Model):
+    """收益惩罚功能包参数配置（按平台独立）。"""
+
+    platform_id = models.IntegerField()
+    惩罚系数beta = models.DecimalField(max_digits=3, decimal_places=2, default=Decimal('0.50'))
+    创建时间 = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = '收益惩罚配置'
+        verbose_name = '收益惩罚配置'
+        verbose_name_plural = '收益惩罚配置'
+        ordering = ['-创建时间', '-id']
+
+
+class ArticleRevenueSettlement(models.Model):
+    """文章收益结算明细（含惩罚信息）。"""
+
+    platform_id = models.IntegerField()
+    写手账号 = models.CharField(max_length=100)
+    文章 = models.ForeignKey(Article, on_delete=models.CASCADE, related_name='收益结算记录')
+    轮次 = models.PositiveIntegerField()
+
+    点击量 = models.PositiveIntegerField(default=0)
+    阅读完成量 = models.PositiveIntegerField(default=0)
+    收藏量 = models.PositiveIntegerField(default=0)
+    满意度均分 = models.DecimalField(max_digits=10, decimal_places=4, default=0)
+
+    w1 = models.DecimalField(max_digits=10, decimal_places=4, default=0)
+    w2 = models.DecimalField(max_digits=10, decimal_places=4, default=0)
+    w3 = models.DecimalField(max_digits=10, decimal_places=4, default=0)
+    w4 = models.DecimalField(max_digits=10, decimal_places=4, default=0)
+
+    原始收益 = models.DecimalField(max_digits=18, decimal_places=6, default=0)
+    penalty_applied = models.BooleanField(default=False)
+    penalty_coefficient = models.DecimalField(max_digits=5, decimal_places=4, default=Decimal('1.0000'))
+    最终收益 = models.DecimalField(max_digits=18, decimal_places=6, default=0)
+
+    结算时间 = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = '文章收益结算'
+        verbose_name = '文章收益结算'
+        verbose_name_plural = '文章收益结算'
+        ordering = ['-结算时间', '-id']
