@@ -2,7 +2,7 @@ from django.contrib import admin
 from .models import (
     WriterAccount, UserAccount, PlatformAccount, ProfitWeightConfig, PlatformCycleProfitRecord,
     PlatformGovernanceMeasure, PlatformPerformanceScheme,
-    AccountHealthLevelConfig, WriterNoticeRead, WriterHealthScoreLog,
+    AccountHealthConfig, AccountHealthLevelConfig, WriterNoticeRead, WriterHealthScoreLog,
     Article, Comment, PlatformSwitchSurvey,
     UserFollowWriter, UnfollowSurvey, ArticlePushDetail, ArticlePush,
     UserArticleLike, UserArticleCollect, UserArticleReadComplete,
@@ -55,12 +55,22 @@ class PlatformGovernanceMeasureAdmin(admin.ModelAdmin):
     list_filter = ['平台', '轮次', '措施类型', '生效轮次', '取消轮次']
 
 
+@admin.register(AccountHealthConfig)
+class AccountHealthConfigAdmin(admin.ModelAdmin):
+    list_display = [
+        'id', 'platform_id', '初始健康分', '每次违规扣减分值',
+        '是否启用恢复机制', '恢复所需连续无违规轮次', '每次恢复分值', '创建时间',
+    ]
+    list_filter = ['platform_id', '是否启用恢复机制']
+
+
 @admin.register(AccountHealthLevelConfig)
 class AccountHealthLevelConfigAdmin(admin.ModelAdmin):
     list_display = [
-        'id', '生效轮次起', '生效轮次止', '下界开', '上界闭', '可推流比例', '排序', '创建时间',
+        'id', '平台', 'config', '档位标签',
+        '生效轮次起', '生效轮次止', '下界开', '上界闭', '可推流比例', '排序', '创建时间',
     ]
-    list_filter = ['生效轮次起']
+    list_filter = ['平台', '生效轮次起']
 
 
 @admin.register(WriterNoticeRead)
@@ -71,8 +81,8 @@ class WriterNoticeReadAdmin(admin.ModelAdmin):
 
 @admin.register(WriterHealthScoreLog)
 class WriterHealthScoreLogAdmin(admin.ModelAdmin):
-    list_display = ['id', '写手账号', '轮次', '文章编号', '变更值', '原因', '创建时间']
-    list_filter = ['轮次', '写手账号']
+    list_display = ['id', '写手账号', '轮次', 'event_type', '文章编号', '变更值', '原因', '创建时间']
+    list_filter = ['轮次', '写手账号', 'event_type']
 
 
 @admin.register(PlatformPerformanceScheme)

@@ -139,12 +139,34 @@ class PlatformGovernanceMeasure(models.Model):
         ordering = ['-轮次', '-创建时间', '-id']
 
 
+class AccountHealthConfig(models.Model):
+    """账号健康分功能包主配置（按平台独立）。"""
+
+    platform_id = models.IntegerField()
+    初始健康分 = models.IntegerField(default=100)
+    每次违规扣减分值 = models.IntegerField(default=10)
+    是否启用恢复机制 = models.BooleanField(default=False)
+    恢复所需连续无违规轮次 = models.IntegerField(default=3)
+    每次恢复分值 = models.IntegerField(default=5)
+    创建时间 = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = '账号健康分配置'
+        verbose_name = '账号健康分配置'
+        verbose_name_plural = '账号健康分配置'
+        ordering = ['-创建时间', '-id']
+
+
 class AccountHealthLevelConfig(models.Model):
     """账号健康分档位与推流比例配置（管理员维护）。
 
     区间为“前开后闭”：(下界开, 上界闭]。
     可推流比例用于发现列表推送抽样比例（0~1）。
     """
+
+    平台 = models.IntegerField(null=True, blank=True)
+    config = models.ForeignKey(AccountHealthConfig, on_delete=models.SET_NULL, null=True, blank=True, related_name='档位列表')
+    档位标签 = models.CharField(max_length=50, blank=True, default='')
 
     生效轮次起 = models.PositiveIntegerField(default=1)
     生效轮次止 = models.PositiveIntegerField(null=True, blank=True)
@@ -179,10 +201,16 @@ class WriterNoticeRead(models.Model):
 
 
 class WriterHealthScoreLog(models.Model):
-    """写手健康分变更审计（例如标题党命中扣分）。"""
+    """写手健康分变更审计（例如标题党命中扣分、信用恢复）。"""
+
+    EVENT_TYPE_CHOICES = [
+        ('violation', '违规扣分'),
+        ('recovery', '信用恢复'),
+    ]
 
     写手账号 = models.CharField(max_length=64)
     轮次 = models.PositiveIntegerField()
+    event_type = models.CharField(max_length=20, choices=EVENT_TYPE_CHOICES, default='violation')
     文章编号 = models.PositiveIntegerField(null=True, blank=True)
     变更值 = models.IntegerField()
     原因 = models.CharField(max_length=128, blank=True)
