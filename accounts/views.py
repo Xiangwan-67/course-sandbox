@@ -559,68 +559,79 @@ def platform_report_save(request):
 
 
 def platform_performance(request):
-    """平台绩效：选择并应用绩效方案（接口占位，后续联动写手报酬）。"""
+    """平台绩效：展示当前生效方案、待审核方案，提供 w1-w4 输入表单。"""
     account = request.session.get('account', '')
     if not account or request.session.get('role') != 'platform':
         return redirect('accounts:login')
     platform_user = PlatformAccount.objects.filter(账号=account).first()
     platform_id = getattr(platform_user, '所属平台', 0) if platform_user else 0
     current_round = _get_current_round()
-    current_scheme = (
-        PlatformPerformanceScheme.objects.filter(平台=platform_id, 生效轮次__lte=current_round)
+    active_scheme = (
+        PlatformPerformanceScheme.objects
+        .filter(平台=platform_id, status='active')
         .order_by('-生效轮次', '-id')
         .first()
     )
-    schemes = [
-        {
-            'code': 'S1_balanced',
-            'name': '方案1：均衡',
-            'desc': '保持点击/收藏/读完等指标权重相对均衡（占位）。',
-        },
-        {
-            'code': 'S2_click_first',
-            'name': '方案2：点击优先',
-            'desc': '更强调点击带来的短期传播（占位）。',
-        },
-        {
-            'code': 'S3_quality_first',
-            'name': '方案3：质量优先',
-            'desc': '更强调收藏与读完等质量指标（占位）。',
-        },
-    ]
+    pending_scheme = (
+        PlatformPerformanceScheme.objects
+        .filter(平台=platform_id, status='pending')
+        .order_by('-创建时间', '-id')
+        .first()
+    )
     return render(request, 'accounts/platform_performance.html', {
         'name': account,
         'platform_id': platform_id,
         'platform_name': PLATFORM_NAMES.get(platform_id, '平台1'),
         'current_round': current_round,
-        'schemes': schemes,
-        'current_scheme': current_scheme,
+        'active_scheme': active_scheme,
+        'pending_scheme': pending_scheme,
     })
 
 
 @require_http_methods(['POST'])
 def platform_performance_apply(request):
-    """应用绩效方案：写入方案记录（从当前轮次生效）。"""
+    """DEPRECATED: 旧版应用绩效方案接口，已废弃，请使用 platform_performance_submit。"""
+    return JsonResponse({'error': '该接口已废弃，请使用新的提交接口'}, status=410)
+
+
+@require_http_methods(['POST'])
+def platform_performance_submit(request):
+    """提交绩效方案：平台输入 w1-w4 权重，状态为 pending，等待管理员审核。"""
     account = request.session.get('account', '')
     if not account or request.session.get('role') != 'platform':
         return JsonResponse({'error': '未登录或非平台角色'}, status=403)
     platform_user = PlatformAccount.objects.filter(账号=account).first()
     platform_id = getattr(platform_user, '所属平台', 0) if platform_user else 0
-    code = (request.POST.get('scheme_code') or '').strip()
-    allowed = {'S1_balanced', 'S2_click_first', 'S3_quality_first'}
-    if code not in allowed:
-        return JsonResponse({'error': '未知方案编号'}, status=400)
+    try:
+        w1 = Decimal(request.POST.get('w1', '0.25'))
+        w2 = Decimal(request.POST.get('w2', '0.25'))
+        w3 = Decimal(request.POST.get('w3', '0.25'))
+        w4 = Decimal(request.POST.get('w4', '0.25'))
+    except Exception:
+        return JsonResponse({'error': '权重参数格式错误'}, status=400)
+    total = w1 + w2 + w3 + w4
+    if total <= 0:
+        return JsonResponse({'error': '权重之和必须大于 0'}, status=400)
     round_num = _get_current_round()
-    content = {'note': '占位：后续联动写手报酬权重计算。'}
+    effective_round = round_num + 1
     rec = PlatformPerformanceScheme.objects.create(
         平台=platform_id,
-        生效轮次=round_num,
-        方案编号=code,
-        方案内容=content,
+        生效轮次=effective_round,
+        方案编号='S1_balanced',
+        方案内容={'w1': str(w1), 'w2': str(w2), 'w3': str(w3), 'w4': str(w4)},
         发布人账号=account,
+        w1_click=w1,
+        w2_finish=w2,
+        w3_collect=w3,
+        w4_satisfaction=w4,
+        status='pending',
     )
-    action_log(f"平台 {platform_id} 应用绩效方案 code={code} round={round_num} rec_id={rec.pk}")
-    return JsonResponse({'ok': True, 'id': rec.pk})
+    action_log(
+        f"平台 {platform_id} 提交绩效方案 scheme_id={rec.pk} "
+        f"w1={w1} w2={w2} w3={w3} w4={w4} status=pending "
+        f"生效轮次={effective_round} 操作人={account}"
+    )
+    return JsonResponse({'ok': True, 'scheme_id': rec.pk, 'effective_round': effective_round})
 
 
 def user_platform_check(request):
