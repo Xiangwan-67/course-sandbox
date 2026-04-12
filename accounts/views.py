@@ -757,6 +757,9 @@ def _settle_article_revenue(platform_id: int, round_num: int):
         ArticleRevenueSettlement, WriterAccount,
     )
 
+    # 同轮重复结束本轮时先清旧明细，避免 ArticleRevenueSettlement 重复行
+    ArticleRevenueSettlement.objects.filter(platform_id=platform_id, 轮次=round_num).delete()
+
     active_scheme = (
         PlatformPerformanceScheme.objects
         .filter(平台=platform_id, status='active', 生效轮次__lte=round_num)
@@ -1309,8 +1312,9 @@ def logout_view(request):
 @require_http_methods(['POST'])
 def end_round(request):
     """结束本轮：
-    1) 先结算“本轮”平台利润并落库（平台+轮次唯一，监管成本默认 0）。
-    2) 再将当前模拟轮次 +1，不删任何文章/推送数据。
+    1) 按平台结算本轮文章收益（绩效 w1-w4 + 收益惩罚 β），落库 ArticleRevenueSettlement，更新 Article.报酬。
+    2) 结算本轮平台利润（占位，P-13 前为 no-op）。
+    3) 再将当前模拟轮次 +1，不删任何文章/推送数据。
 
     用户端列表只查当前轮次，故等效于清空列表进入下一轮。可由管理员或脚本在用户们退出后调用。
     """
@@ -1318,12 +1322,15 @@ def end_round(request):
     # 目前平台编码沿用 0/1；后续扩展更多平台时，可改为从平台表/配置表读取
     settled = []
     for pid in (0, 1):
+        _settle_article_revenue(pid, round_to_settle)
         _settle_platform_profit(pid, round_to_settle)  # DEPRECATED stub, no-op until P-13
         settled.append({'platform_id': pid})
 
     SimulationRound.objects.filter(pk=1).update(当前轮次=F('当前轮次') + 1)
     new_round = _get_current_round()
-    action_log(f"结束本轮 round={round_to_settle} -> {new_round} | 已结算平台利润={settled}")
+    action_log(
+        f"结束本轮 round={round_to_settle} -> {new_round} | 已文章收益结算+平台利润占位={settled}"
+    )
     return JsonResponse({'ok': True, 'current_round': new_round, 'settled_profit': settled})
 
 
