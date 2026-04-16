@@ -131,6 +131,15 @@ class PlatformGovernanceMeasure(models.Model):
     config_id = models.IntegerField(null=True, blank=True)  # 指向各功能包参数子表 PK
     发布人账号 = models.CharField(max_length=64, blank=True)
     创建时间 = models.DateTimeField(auto_now_add=True)
+    STATUS_CHOICES = [
+        ('pending', '待审核'),
+        ('active', '已生效'),
+        ('rejected', '已驳回'),
+        ('cancelled', '已取消'),
+    ]
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    管理员确认账号 = models.CharField(max_length=100, blank=True)
+    管理员确认时间 = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = '平台治理措施记录'
@@ -149,6 +158,16 @@ class AccountHealthConfig(models.Model):
     恢复所需连续无违规轮次 = models.IntegerField(default=3)
     每次恢复分值 = models.IntegerField(default=5)
     创建时间 = models.DateTimeField(auto_now_add=True)
+    STATUS_CHOICES = [
+        ('draft', '草稿'),
+        ('pending', '待审核'),
+        ('active', '已生效'),
+        ('rejected', '已驳回'),
+    ]
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
+    提交人账号 = models.CharField(max_length=64, blank=True, default='')
+    管理员确认账号 = models.CharField(max_length=100, blank=True)
+    管理员确认时间 = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = '账号健康分配置'
@@ -424,6 +443,16 @@ class ClickbaitDetectionConfig(models.Model):
     判定阈值 = models.IntegerField(default=2)
     判定概率值 = models.DecimalField(max_digits=3, decimal_places=2, default=Decimal('0.80'))
     创建时间 = models.DateTimeField(auto_now_add=True)
+    STATUS_CHOICES = [
+        ('draft', '草稿'),
+        ('pending', '待审核'),
+        ('active', '已生效'),
+        ('rejected', '已驳回'),
+    ]
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
+    提交人账号 = models.CharField(max_length=64, blank=True, default='')
+    管理员确认账号 = models.CharField(max_length=100, blank=True)
+    管理员确认时间 = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = '标题党检测配置'
@@ -457,6 +486,16 @@ class TrafficPenaltyConfig(models.Model):
     platform_id = models.IntegerField()
     降权系数alpha = models.DecimalField(max_digits=3, decimal_places=2, default=Decimal('0.50'))
     创建时间 = models.DateTimeField(auto_now_add=True)
+    STATUS_CHOICES = [
+        ('draft', '草稿'),
+        ('pending', '待审核'),
+        ('active', '已生效'),
+        ('rejected', '已驳回'),
+    ]
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
+    提交人账号 = models.CharField(max_length=64, blank=True, default='')
+    管理员确认账号 = models.CharField(max_length=100, blank=True)
+    管理员确认时间 = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = '流量惩罚配置'
@@ -499,6 +538,16 @@ class UserReportConfig(models.Model):
     举报触发阈值 = models.DecimalField(max_digits=3, decimal_places=2, default=Decimal('0.30'))
     审核方式 = models.CharField(max_length=20, choices=REVIEW_METHOD_CHOICES, default='auto')
     创建时间 = models.DateTimeField(auto_now_add=True)
+    STATUS_CHOICES = [
+        ('draft', '草稿'),
+        ('pending', '待审核'),
+        ('active', '已生效'),
+        ('rejected', '已驳回'),
+    ]
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
+    提交人账号 = models.CharField(max_length=64, blank=True, default='')
+    管理员确认账号 = models.CharField(max_length=100, blank=True)
+    管理员确认时间 = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = '用户举报配置'
@@ -536,6 +585,16 @@ class RevenuePenaltyConfig(models.Model):
     platform_id = models.IntegerField()
     惩罚系数beta = models.DecimalField(max_digits=3, decimal_places=2, default=Decimal('0.50'))
     创建时间 = models.DateTimeField(auto_now_add=True)
+    STATUS_CHOICES = [
+        ('draft', '草稿'),
+        ('pending', '待审核'),
+        ('active', '已生效'),
+        ('rejected', '已驳回'),
+    ]
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
+    提交人账号 = models.CharField(max_length=64, blank=True, default='')
+    管理员确认账号 = models.CharField(max_length=100, blank=True)
+    管理员确认时间 = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = '收益惩罚配置'

@@ -56,7 +56,7 @@
             <button onclick="toggleMeasure('{{ m.type }}', true)">取消该措施</button>
           {% else %}
             <span style="color: gray; margin-right: 8px;">未发布</span>
-            <button onclick="toggleMeasure('{{ m.type }}', false)">发布该措施</button>
+            <button onclick="toggleMeasure('{{ m.type }}', false)">提交发布申请（待管理员审核）</button>
           {% endif %}
           {% if m.config_url %}
             <a href="{% url m.config_url %}" style="margin-left: 12px;">配置参数</a>
@@ -73,6 +73,22 @@
   </p>
 
   <script>
+    function getCookie(name) {
+      const value = `; ${document.cookie}`;
+      const parts = value.split(`; ${name}=`);
+      if (parts.length === 2) return parts.pop().split(';').shift();
+      return '';
+    }
+
+    async function safeReadJson(res) {
+      try {
+        return await res.json();
+      } catch (e) {
+        const text = await res.text();
+        return { error: text || '响应不是 JSON（可能是 CSRF/错误页）' };
+      }
+    }
+
     async function toggleMeasure(measureType, isPublished) {
       if (isPublished) {
         await cancelMeasure(measureType);
@@ -82,35 +98,49 @@
     }
 
     async function publishMeasure(measureType) {
-      const form = new FormData();
-      form.append('measure_type', measureType);
-      const res = await fetch("{% url 'accounts:platform_governance_publish' %}", {
-        method: 'POST',
-        body: form
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || '发布失败');
-        return;
+      try {
+        const csrftoken = getCookie('csrftoken');
+        const form = new FormData();
+        form.append('measure_type', measureType);
+        const res = await fetch("{% url 'accounts:platform_governance_publish' %}", {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'X-CSRFToken': csrftoken },
+          body: form
+        });
+        const data = await safeReadJson(res);
+        if (!res.ok) {
+          alert(data.error || '发布失败');
+          return;
+        }
+        alert('发布成功，下一轮起生效。');
+        window.location.reload();
+      } catch (err) {
+        alert('请求失败：' + (err && err.message ? err.message : String(err)));
       }
-      alert('发布成功，下一轮起生效。');
-      window.location.reload();
     }
 
     async function cancelMeasure(measureType) {
-      const form = new FormData();
-      form.append('measure_type', measureType);
-      const res = await fetch("{% url 'accounts:platform_governance_cancel' %}", {
-        method: 'POST',
-        body: form
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || '取消失败');
-        return;
+      try {
+        const csrftoken = getCookie('csrftoken');
+        const form = new FormData();
+        form.append('measure_type', measureType);
+        const res = await fetch("{% url 'accounts:platform_governance_cancel' %}", {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'X-CSRFToken': csrftoken },
+          body: form
+        });
+        const data = await safeReadJson(res);
+        if (!res.ok) {
+          alert(data.error || '取消失败');
+          return;
+        }
+        alert('取消成功（下一轮起不再执行）。');
+        window.location.reload();
+      } catch (err) {
+        alert('请求失败：' + (err && err.message ? err.message : String(err)));
       }
-      alert('取消成功（下一轮起不再执行）。');
-      window.location.reload();
     }
   </script>
 </body>

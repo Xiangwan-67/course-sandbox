@@ -51,8 +51,39 @@ class PlatformCycleProfitRecordAdmin(admin.ModelAdmin):
 
 @admin.register(PlatformGovernanceMeasure)
 class PlatformGovernanceMeasureAdmin(admin.ModelAdmin):
-    list_display = ['id', '平台', '轮次', '生效轮次', '取消轮次', '措施类型', 'config_id', '发布人账号', '创建时间']
-    list_filter = ['平台', '轮次', '措施类型', '生效轮次', '取消轮次']
+    list_display = ['id', '平台', '轮次', '生效轮次', '取消轮次', '措施类型', 'config_id', 'status', '管理员确认账号', '管理员确认时间', '发布人账号', '创建时间']
+    list_filter = ['平台', '轮次', '措施类型', '生效轮次', '取消轮次', 'status']
+    actions = ['approve_measures', 'reject_measures']
+
+    @admin.action(description='审核通过：使选中的治理措施生效')
+    def approve_measures(self, request, queryset):
+        from django.utils import timezone
+        from accounts.action_logger import action_log
+        admin_account = getattr(request.user, 'username', str(request.user))
+        now = timezone.now()
+        for rec in queryset.filter(status='pending'):
+            rec.status = 'active'
+            rec.管理员确认账号 = admin_account
+            rec.管理员确认时间 = now
+            rec.save(update_fields=['status', '管理员确认账号', '管理员确认时间'])
+            action_log(
+                f"管理员确认治理措施生效 | 管理员={admin_account} measure_id={rec.pk} 平台={rec.平台} type={rec.措施类型} 生效轮次={rec.生效轮次} config_id={rec.config_id}"
+            )
+
+    @admin.action(description='驳回：选中的治理措施不通过')
+    def reject_measures(self, request, queryset):
+        from django.utils import timezone
+        from accounts.action_logger import action_log
+        admin_account = getattr(request.user, 'username', str(request.user))
+        now = timezone.now()
+        for rec in queryset.filter(status='pending'):
+            rec.status = 'rejected'
+            rec.管理员确认账号 = admin_account
+            rec.管理员确认时间 = now
+            rec.save(update_fields=['status', '管理员确认账号', '管理员确认时间'])
+            action_log(
+                f"管理员驳回治理措施 | 管理员={admin_account} measure_id={rec.pk} 平台={rec.平台} type={rec.措施类型} config_id={rec.config_id}"
+            )
 
 
 @admin.register(AccountHealthConfig)
@@ -226,8 +257,35 @@ class PlatformSwitchSurveyAdmin(admin.ModelAdmin):
 
 @admin.register(ClickbaitDetectionConfig)
 class ClickbaitDetectionConfigAdmin(admin.ModelAdmin):
-    list_display = ['id', 'platform_id', '判定阈值', '判定概率值', '创建时间']
-    list_filter = ['platform_id']
+    list_display = ['id', 'platform_id', '判定阈值', '判定概率值', 'status', '提交人账号', '管理员确认账号', '管理员确认时间', '创建时间']
+    list_filter = ['platform_id', 'status']
+    actions = ['approve_configs', 'reject_configs']
+
+    @admin.action(description='审核通过：使选中的配置生效')
+    def approve_configs(self, request, queryset):
+        from django.utils import timezone
+        from accounts.action_logger import action_log
+        admin_account = getattr(request.user, 'username', str(request.user))
+        now = timezone.now()
+        for cfg in queryset.filter(status='pending'):
+            cfg.status = 'active'
+            cfg.管理员确认账号 = admin_account
+            cfg.管理员确认时间 = now
+            cfg.save(update_fields=['status', '管理员确认账号', '管理员确认时间'])
+            action_log(f"管理员确认标题党检测配置生效 | 管理员={admin_account} config_id={cfg.pk} 平台={cfg.platform_id}")
+
+    @admin.action(description='驳回：选中的配置不通过')
+    def reject_configs(self, request, queryset):
+        from django.utils import timezone
+        from accounts.action_logger import action_log
+        admin_account = getattr(request.user, 'username', str(request.user))
+        now = timezone.now()
+        for cfg in queryset.filter(status='pending'):
+            cfg.status = 'rejected'
+            cfg.管理员确认账号 = admin_account
+            cfg.管理员确认时间 = now
+            cfg.save(update_fields=['status', '管理员确认账号', '管理员确认时间'])
+            action_log(f"管理员驳回标题党检测配置 | 管理员={admin_account} config_id={cfg.pk} 平台={cfg.platform_id}")
 
 
 @admin.register(ClickbaitDetectionResult)
@@ -238,8 +296,35 @@ class ClickbaitDetectionResultAdmin(admin.ModelAdmin):
 
 @admin.register(TrafficPenaltyConfig)
 class TrafficPenaltyConfigAdmin(admin.ModelAdmin):
-    list_display = ['id', 'platform_id', '降权系数alpha', '创建时间']
-    list_filter = ['platform_id']
+    list_display = ['id', 'platform_id', '降权系数alpha', 'status', '提交人账号', '管理员确认账号', '管理员确认时间', '创建时间']
+    list_filter = ['platform_id', 'status']
+    actions = ['approve_configs', 'reject_configs']
+
+    @admin.action(description='审核通过：使选中的配置生效')
+    def approve_configs(self, request, queryset):
+        from django.utils import timezone
+        from accounts.action_logger import action_log
+        admin_account = getattr(request.user, 'username', str(request.user))
+        now = timezone.now()
+        for cfg in queryset.filter(status='pending'):
+            cfg.status = 'active'
+            cfg.管理员确认账号 = admin_account
+            cfg.管理员确认时间 = now
+            cfg.save(update_fields=['status', '管理员确认账号', '管理员确认时间'])
+            action_log(f"管理员确认流量惩罚配置生效 | 管理员={admin_account} config_id={cfg.pk} 平台={cfg.platform_id}")
+
+    @admin.action(description='驳回：选中的配置不通过')
+    def reject_configs(self, request, queryset):
+        from django.utils import timezone
+        from accounts.action_logger import action_log
+        admin_account = getattr(request.user, 'username', str(request.user))
+        now = timezone.now()
+        for cfg in queryset.filter(status='pending'):
+            cfg.status = 'rejected'
+            cfg.管理员确认账号 = admin_account
+            cfg.管理员确认时间 = now
+            cfg.save(update_fields=['status', '管理员确认账号', '管理员确认时间'])
+            action_log(f"管理员驳回流量惩罚配置 | 管理员={admin_account} config_id={cfg.pk} 平台={cfg.platform_id}")
 
 
 @admin.register(ArticleTraffic)
@@ -256,8 +341,35 @@ class ArticleTrafficAdmin(admin.ModelAdmin):
 
 @admin.register(UserReportConfig)
 class UserReportConfigAdmin(admin.ModelAdmin):
-    list_display = ['id', 'platform_id', '举报触发阈值', '审核方式', '创建时间']
-    list_filter = ['platform_id', '审核方式']
+    list_display = ['id', 'platform_id', '举报触发阈值', '审核方式', 'status', '提交人账号', '管理员确认账号', '管理员确认时间', '创建时间']
+    list_filter = ['platform_id', '审核方式', 'status']
+    actions = ['approve_configs', 'reject_configs']
+
+    @admin.action(description='审核通过：使选中的配置生效')
+    def approve_configs(self, request, queryset):
+        from django.utils import timezone
+        from accounts.action_logger import action_log
+        admin_account = getattr(request.user, 'username', str(request.user))
+        now = timezone.now()
+        for cfg in queryset.filter(status='pending'):
+            cfg.status = 'active'
+            cfg.管理员确认账号 = admin_account
+            cfg.管理员确认时间 = now
+            cfg.save(update_fields=['status', '管理员确认账号', '管理员确认时间'])
+            action_log(f"管理员确认用户举报配置生效 | 管理员={admin_account} config_id={cfg.pk} 平台={cfg.platform_id}")
+
+    @admin.action(description='驳回：选中的配置不通过')
+    def reject_configs(self, request, queryset):
+        from django.utils import timezone
+        from accounts.action_logger import action_log
+        admin_account = getattr(request.user, 'username', str(request.user))
+        now = timezone.now()
+        for cfg in queryset.filter(status='pending'):
+            cfg.status = 'rejected'
+            cfg.管理员确认账号 = admin_account
+            cfg.管理员确认时间 = now
+            cfg.save(update_fields=['status', '管理员确认账号', '管理员确认时间'])
+            action_log(f"管理员驳回用户举报配置 | 管理员={admin_account} config_id={cfg.pk} 平台={cfg.platform_id}")
 
 
 @admin.register(ArticleReport)
@@ -268,8 +380,35 @@ class ArticleReportAdmin(admin.ModelAdmin):
 
 @admin.register(RevenuePenaltyConfig)
 class RevenuePenaltyConfigAdmin(admin.ModelAdmin):
-    list_display = ['id', 'platform_id', '惩罚系数beta', '创建时间']
-    list_filter = ['platform_id']
+    list_display = ['id', 'platform_id', '惩罚系数beta', 'status', '提交人账号', '管理员确认账号', '管理员确认时间', '创建时间']
+    list_filter = ['platform_id', 'status']
+    actions = ['approve_configs', 'reject_configs']
+
+    @admin.action(description='审核通过：使选中的配置生效')
+    def approve_configs(self, request, queryset):
+        from django.utils import timezone
+        from accounts.action_logger import action_log
+        admin_account = getattr(request.user, 'username', str(request.user))
+        now = timezone.now()
+        for cfg in queryset.filter(status='pending'):
+            cfg.status = 'active'
+            cfg.管理员确认账号 = admin_account
+            cfg.管理员确认时间 = now
+            cfg.save(update_fields=['status', '管理员确认账号', '管理员确认时间'])
+            action_log(f"管理员确认收益惩罚配置生效 | 管理员={admin_account} config_id={cfg.pk} 平台={cfg.platform_id}")
+
+    @admin.action(description='驳回：选中的配置不通过')
+    def reject_configs(self, request, queryset):
+        from django.utils import timezone
+        from accounts.action_logger import action_log
+        admin_account = getattr(request.user, 'username', str(request.user))
+        now = timezone.now()
+        for cfg in queryset.filter(status='pending'):
+            cfg.status = 'rejected'
+            cfg.管理员确认账号 = admin_account
+            cfg.管理员确认时间 = now
+            cfg.save(update_fields=['status', '管理员确认账号', '管理员确认时间'])
+            action_log(f"管理员驳回收益惩罚配置 | 管理员={admin_account} config_id={cfg.pk} 平台={cfg.platform_id}")
 
 
 @admin.register(ArticleRevenueSettlement)

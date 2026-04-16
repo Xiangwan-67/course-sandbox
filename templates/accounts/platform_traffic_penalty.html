@@ -26,6 +26,11 @@
         {% if is_published %}（下一轮起生效）{% endif %}
       {% endif %}
     </p>
+    {% if latest_measure and latest_measure.status == 'pending' %}
+      <p style="color:#d48806;">当前发布申请：待管理员审核（measure_id={{ latest_measure.pk }}）</p>
+    {% elif latest_measure and latest_measure.status == 'rejected' %}
+      <p style="color:#cf1322;">当前发布申请：已被管理员驳回（measure_id={{ latest_measure.pk }}）</p>
+    {% endif %}
     <p style="color: #666;">说明：启用后，被自动检测判定为标题党的文章将按 α 系数进行流量降权。α=1.0 表示不降权，α=0 表示完全屏蔽。</p>
 
     {% if config %}
@@ -33,6 +38,7 @@
       <p>当前配置（ID: {{ config.pk }}）</p>
       <ul>
         <li>降权系数 α：{{ config.降权系数alpha }}</li>
+        <li>状态：{{ config.get_status_display }}</li>
         <li>创建时间：{{ config.创建时间 }}</li>
       </ul>
     </div>
@@ -50,7 +56,11 @@
                value="{{ config.降权系数alpha|default:'0.50' }}" min="0" max="1" style="width: 100px;" />
         <span style="color: #888; margin-left: 8px;">标题党文章的流量乘以此系数（越小惩罚越重）</span>
       </div>
-      <button type="button" onclick="saveConfig()">保存配置</button>
+      {% if config and config.status == 'pending' or config and config.status == 'active' %}
+        <div style="color:#888;">配置已提交/生效，禁止修改。如需调整请联系管理员驳回后重新提交。</div>
+      {% else %}
+        <button type="button" onclick="saveConfig()">提交配置（待管理员审核）</button>
+      {% endif %}
     </form>
   </div>
 
@@ -60,8 +70,8 @@
       <button onclick="cancelMeasure()">取消流量惩罚</button>
       <span style="color: #888; margin-left: 8px;">取消后下一轮起不再对标题党文章降权</span>
     {% else %}
-      <button onclick="publishMeasure()">发布启用流量惩罚</button>
-      <span style="color: #888; margin-left: 8px;">发布后下一轮起对标题党文章按 α 系数降权</span>
+      <button onclick="publishMeasure()">提交发布申请（待管理员审核）</button>
+      <span style="color: #888; margin-left: 8px;">审核通过后下一轮起对标题党文章按 α 系数降权</span>
     {% endif %}
   </div>
 
@@ -74,53 +84,90 @@
   </p>
 
   <script>
-    async function saveConfig() {
-      const alpha = document.getElementById('alpha').value;
-      const form = new FormData();
-      form.append('alpha', alpha);
-      const res = await fetch("{% url 'accounts:platform_traffic_penalty_save' %}", {
-        method: 'POST',
-        body: form
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || '保存失败');
-        return;
+    function getCookie(name) {
+      const value = `; ${document.cookie}`;
+      const parts = value.split(`; ${name}=`);
+      if (parts.length === 2) return parts.pop().split(';').shift();
+      return '';
+    }
+
+    async function safeReadJson(res) {
+      try {
+        return await res.json();
+      } catch (e) {
+        const text = await res.text();
+        return { error: text || '响应不是 JSON（可能是 CSRF/错误页）' };
       }
-      alert('配置保存成功（ID: ' + data.config_id + '）');
-      window.location.reload();
+    }
+
+    async function saveConfig() {
+      try {
+        const csrftoken = getCookie('csrftoken');
+        const alpha = document.getElementById('alpha').value;
+        const form = new FormData();
+        form.append('alpha', alpha);
+        const res = await fetch("{% url 'accounts:platform_traffic_penalty_save' %}", {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'X-CSRFToken': csrftoken },
+          body: form
+        });
+        const data = await safeReadJson(res);
+        if (!res.ok) {
+          alert(data.error || '保存失败');
+          return;
+        }
+        alert('配置保存成功（ID: ' + data.config_id + '）');
+        window.location.reload();
+      } catch (err) {
+        alert('请求失败：' + (err && err.message ? err.message : String(err)));
+      }
     }
 
     async function publishMeasure() {
-      const form = new FormData();
-      form.append('measure_type', 'traffic_penalty');
-      const res = await fetch("{% url 'accounts:platform_governance_publish' %}", {
-        method: 'POST',
-        body: form
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || '发布失败');
-        return;
+      try {
+        const csrftoken = getCookie('csrftoken');
+        const form = new FormData();
+        form.append('measure_type', 'traffic_penalty');
+        const res = await fetch("{% url 'accounts:platform_governance_publish' %}", {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'X-CSRFToken': csrftoken },
+          body: form
+        });
+        const data = await safeReadJson(res);
+        if (!res.ok) {
+          alert(data.error || '发布失败');
+          return;
+        }
+        alert('流量惩罚已发布，下一轮起生效。');
+        window.location.reload();
+      } catch (err) {
+        alert('请求失败：' + (err && err.message ? err.message : String(err)));
       }
-      alert('流量惩罚已发布，下一轮起生效。');
-      window.location.reload();
     }
 
     async function cancelMeasure() {
-      const form = new FormData();
-      form.append('measure_type', 'traffic_penalty');
-      const res = await fetch("{% url 'accounts:platform_governance_cancel' %}", {
-        method: 'POST',
-        body: form
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || '取消失败');
-        return;
+      try {
+        const csrftoken = getCookie('csrftoken');
+        const form = new FormData();
+        form.append('measure_type', 'traffic_penalty');
+        const res = await fetch("{% url 'accounts:platform_governance_cancel' %}", {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'X-CSRFToken': csrftoken },
+          body: form
+        });
+        const data = await safeReadJson(res);
+        if (!res.ok) {
+          alert(data.error || '取消失败');
+          return;
+        }
+        alert('流量惩罚已取消（下一轮起不再执行）。');
+        window.location.reload();
+      } catch (err) {
+        alert('请求失败：' + (err && err.message ? err.message : String(err)));
       }
-      alert('流量惩罚已取消（下一轮起不再执行）。');
-      window.location.reload();
     }
   </script>
 </body>

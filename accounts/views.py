@@ -555,6 +555,7 @@ def platform_round_result(request):
     })
 
 
+@ensure_csrf_cookie
 def platform_governance(request):
     """平台治理：展示可选措施。"""
     account = request.session.get('account', '')
@@ -589,7 +590,7 @@ def platform_governance(request):
         {
             'type': 'clickbait_detection',
             'name': '标题党检测',
-            'desc': '自动检测写手文章是否为标题党。需先配置阈值和概率值，再发布启用。',
+            'desc': '自动检测写手文章是否为标题党。默认参数由管理员维护，平台侧仅开关。',
             'published': _is_measure_published('clickbait_detection'),
             'config_url': 'accounts:platform_clickbait_detection',
         },
@@ -633,7 +634,7 @@ def platform_governance(request):
 
 @require_http_methods(['POST'])
 def platform_governance_publish(request):
-    """发布平台治理措施：写入记录表，平台首页通知栏可见。"""
+    """提交发布平台治理措施（待管理员审核）：写入记录表。"""
     account = request.session.get('account', '')
     if not account or request.session.get('role') != 'platform':
         return JsonResponse({'error': '未登录或非平台角色'}, status=403)
@@ -647,8 +648,20 @@ def platform_governance_publish(request):
     effective_round = round_num + 1
     config_id = None
     content = {}
+    # 防重复：若存在“未安排取消”的 pending/active 记录，则不允许重复提交发布
+    # 允许场景：已经点过取消（取消轮次=下一轮），此时再次发布应新建一条记录，使下一轮重新生效
+    exists_pending_or_active_not_cancelled = PlatformGovernanceMeasure.objects.filter(
+        平台=platform_id,
+        措施类型=measure_type,
+        status__in=['pending', 'active'],
+        取消轮次__isnull=True,
+    ).exists()
+    if exists_pending_or_active_not_cancelled:
+        return JsonResponse({'error': '该措施已有待审核或已生效记录，不能重复提交发布。'}, status=400)
+
     if measure_type == 'account_health_rule':
-        cfg = _get_latest_account_health_config(platform_id)
+        # 账号健康分配置若不存在，先创建 draft 作为默认草稿；但发布仍需要先“提交配置”
+        cfg = AccountHealthConfig.objects.filter(platform_id=platform_id).order_by('-id').first()
         if not cfg:
             cfg = AccountHealthConfig.objects.create(
                 platform_id=platform_id,
@@ -657,8 +670,13 @@ def platform_governance_publish(request):
                 是否启用恢复机制=False,
                 恢复所需连续无违规轮次=3,
                 每次恢复分值=5,
+                status='draft',
+                提交人账号=account,
             )
-        config_id = cfg.pk
+        # 必须存在已提交(待审/已生效)的配置才允许提交发布
+        if cfg.status not in ('pending', 'active'):
+            return JsonResponse({'error': '请先提交账号健康分配置，等待管理员审核后再提交发布。'}, status=400)
+        config_id = int(cfg.pk)
         content = {
             '初始健康分': cfg.初始健康分,
             '每次违规扣减分值': cfg.每次违规扣减分值,
@@ -667,25 +685,35 @@ def platform_governance_publish(request):
             '每次恢复分值': cfg.每次恢复分值,
         }
     elif measure_type == 'clickbait_detection':
-        cfg = ClickbaitDetectionConfig.objects.filter(platform_id=platform_id).order_by('-id').first()
-        if cfg:
-            config_id = cfg.pk
-            content = {'判定阈值': cfg.判定阈值, '判定概率值': str(cfg.判定概率值)}
+        # 平台侧不提交参数；必须由管理员在后台创建并激活默认配置
+        cfg = (
+            ClickbaitDetectionConfig.objects
+            .filter(platform_id=platform_id, status='active')
+            .order_by('-id')
+            .first()
+        )
+        if not cfg:
+            return JsonResponse({'error': '管理员尚未配置标题党检测默认参数，请联系管理员在后台添加并审核生效后再开启。'}, status=400)
+        config_id = int(cfg.pk)
+        content = {'判定阈值': cfg.判定阈值, '判定概率值': str(cfg.判定概率值)}
     elif measure_type == 'traffic_penalty':
         cfg = TrafficPenaltyConfig.objects.filter(platform_id=platform_id).order_by('-id').first()
-        if cfg:
-            config_id = cfg.pk
-            content = {'降权系数alpha': str(cfg.降权系数alpha)}
+        if not cfg or cfg.status not in ('pending', 'active'):
+            return JsonResponse({'error': '请先提交流量惩罚配置，等待管理员审核后再提交发布。'}, status=400)
+        config_id = int(cfg.pk)
+        content = {'降权系数alpha': str(cfg.降权系数alpha)}
     elif measure_type == 'user_report':
         cfg = UserReportConfig.objects.filter(platform_id=platform_id).order_by('-id').first()
-        if cfg:
-            config_id = cfg.pk
-            content = {'举报触发阈值': str(cfg.举报触发阈值), '审核方式': cfg.审核方式}
+        if not cfg or cfg.status not in ('pending', 'active'):
+            return JsonResponse({'error': '请先提交用户举报配置，等待管理员审核后再提交发布。'}, status=400)
+        config_id = int(cfg.pk)
+        content = {'举报触发阈值': str(cfg.举报触发阈值), '审核方式': cfg.审核方式}
     elif measure_type == 'revenue_penalty':
         cfg = RevenuePenaltyConfig.objects.filter(platform_id=platform_id).order_by('-id').first()
-        if cfg:
-            config_id = cfg.pk
-            content = {'惩罚系数beta': str(cfg.惩罚系数beta)}
+        if not cfg or cfg.status not in ('pending', 'active'):
+            return JsonResponse({'error': '请先提交收益惩罚配置，等待管理员审核后再提交发布。'}, status=400)
+        config_id = int(cfg.pk)
+        content = {'惩罚系数beta': str(cfg.惩罚系数beta)}
     rec = PlatformGovernanceMeasure.objects.create(
         平台=platform_id,
         轮次=round_num,
@@ -694,8 +722,9 @@ def platform_governance_publish(request):
         措施内容=content,
         config_id=config_id,
         发布人账号=account,
+        status='pending',
     )
-    action_log(f"平台 {platform_id} 发布治理措施 type={measure_type} round={round_num} effective_round={effective_round} rec_id={rec.pk}")
+    action_log(f"平台 {platform_id} 提交治理措施待审 type={measure_type} round={round_num} effective_round={effective_round} rec_id={rec.pk} config_id={config_id}")
     return JsonResponse({'ok': True, 'id': rec.pk})
 
 
@@ -722,21 +751,35 @@ def platform_governance_cancel(request):
         return JsonResponse({'error': '未找到可取消的规则记录'}, status=404)
     if rec.取消轮次 is not None and rec.取消轮次 <= cancel_round:
         return JsonResponse({'ok': True, 'id': rec.pk, 'cancel_round': rec.取消轮次})
+    # 已被驳回/已取消的记录无需再取消
+    if getattr(rec, 'status', None) in ('rejected', 'cancelled'):
+        return JsonResponse({'error': '该措施已驳回或已取消，无需重复取消。'}, status=400)
     rec.取消轮次 = cancel_round
-    rec.save(update_fields=['取消轮次'])
+    # 若本轮立即取消待审核申请，则直接标记为 cancelled
+    if getattr(rec, 'status', None) == 'pending':
+        rec.status = 'cancelled'
+        rec.save(update_fields=['取消轮次', 'status'])
+    else:
+        rec.save(update_fields=['取消轮次'])
     action_log(f"平台 {platform_id} 取消治理措施 type={measure_type} round={round_num} cancel_round={cancel_round} rec_id={rec.pk}")
     return JsonResponse({'ok': True, 'id': rec.pk, 'cancel_round': cancel_round})
 
 
+@ensure_csrf_cookie
 def platform_clickbait_detection(request):
-    """标题党检测配置页：GET 展示当前配置 + 启用状态。"""
+    """标题党检测开关页：平台侧不展示参数配置，仅开关。"""
     account = request.session.get('account', '')
     if not account or request.session.get('role') != 'platform':
         return redirect('accounts:login')
     platform_user = PlatformAccount.objects.filter(账号=account).first()
     platform_id = getattr(platform_user, '所属平台', 0) if platform_user else 0
     current_round = _get_current_round()
-    cfg = ClickbaitDetectionConfig.objects.filter(platform_id=platform_id).order_by('-id').first()
+    cfg = (
+        ClickbaitDetectionConfig.objects
+        .filter(platform_id=platform_id, status='active')
+        .order_by('-id')
+        .first()
+    )
     measure = _get_effective_governance_measure(platform_id, 'clickbait_detection', current_round)
     latest_measure = (
         PlatformGovernanceMeasure.objects
@@ -744,7 +787,7 @@ def platform_clickbait_detection(request):
         .order_by('-轮次', '-id')
         .first()
     )
-    is_published = bool(latest_measure and latest_measure.取消轮次 is None)
+    is_published = bool(latest_measure and latest_measure.取消轮次 is None and latest_measure.status in ('pending', 'active'))
     return render(request, 'accounts/platform_clickbait_detection.html', {
         'name': account,
         'platform_id': platform_id,
@@ -753,37 +796,17 @@ def platform_clickbait_detection(request):
         'config': cfg,
         'is_published': is_published,
         'is_effective': bool(measure),
+        'latest_measure': latest_measure,
     })
 
 
 @require_http_methods(['POST'])
 def platform_clickbait_detection_save(request):
-    """保存标题党检测配置参数（阈值、概率值）。"""
-    account = request.session.get('account', '')
-    if not account or request.session.get('role') != 'platform':
-        return JsonResponse({'error': '未登录或非平台角色'}, status=403)
-    platform_user = PlatformAccount.objects.filter(账号=account).first()
-    platform_id = getattr(platform_user, '所属平台', 0) if platform_user else 0
-    try:
-        threshold = int(request.POST.get('threshold', 3))
-    except (TypeError, ValueError):
-        threshold = 3
-    try:
-        probability = Decimal(request.POST.get('probability', '0.5'))
-    except Exception:
-        probability = Decimal('0.5')
-    cfg = ClickbaitDetectionConfig.objects.create(
-        platform_id=platform_id,
-        判定阈值=threshold,
-        判定概率值=probability,
-    )
-    action_log(
-        f"平台 {platform_id} 保存标题党检测配置 config_id={cfg.pk} "
-        f"阈值={threshold} 概率值={probability} 操作人={account}"
-    )
-    return JsonResponse({'ok': True, 'config_id': cfg.pk})
+    """标题党检测参数配置接口已停用：平台侧不允许配置参数。"""
+    return JsonResponse({'error': '平台侧不允许配置标题党检测参数，请由管理员在后台维护默认参数。'}, status=410)
 
 
+@ensure_csrf_cookie
 def platform_traffic_penalty(request):
     """流量惩罚配置页：GET 展示当前配置 + 启用状态。"""
     account = request.session.get('account', '')
@@ -800,7 +823,7 @@ def platform_traffic_penalty(request):
         .order_by('-轮次', '-id')
         .first()
     )
-    is_published = bool(latest_measure and latest_measure.取消轮次 is None)
+    is_published = bool(latest_measure and latest_measure.取消轮次 is None and latest_measure.status in ('pending', 'active'))
     return render(request, 'accounts/platform_traffic_penalty.html', {
         'name': account,
         'platform_id': platform_id,
@@ -809,17 +832,20 @@ def platform_traffic_penalty(request):
         'config': cfg,
         'is_published': is_published,
         'is_effective': bool(measure),
+        'latest_measure': latest_measure,
     })
 
 
 @require_http_methods(['POST'])
 def platform_traffic_penalty_save(request):
-    """保存流量惩罚配置参数（α 值）。"""
+    """提交流量惩罚配置参数（α 值）到管理员审核。"""
     account = request.session.get('account', '')
     if not account or request.session.get('role') != 'platform':
         return JsonResponse({'error': '未登录或非平台角色'}, status=403)
     platform_user = PlatformAccount.objects.filter(账号=account).first()
     platform_id = getattr(platform_user, '所属平台', 0) if platform_user else 0
+    if TrafficPenaltyConfig.objects.filter(platform_id=platform_id, status__in=['pending', 'active']).exists():
+        return JsonResponse({'error': '该配置已提交待审或已生效，不能再次修改。'}, status=400)
     try:
         alpha = Decimal(request.POST.get('alpha', '0.50'))
     except Exception:
@@ -828,14 +854,17 @@ def platform_traffic_penalty_save(request):
     cfg = TrafficPenaltyConfig.objects.create(
         platform_id=platform_id,
         降权系数alpha=alpha,
+        status='pending',
+        提交人账号=account,
     )
     action_log(
-        f"平台 {platform_id} 保存流量惩罚配置 config_id={cfg.pk} "
+        f"平台 {platform_id} 提交流量惩罚配置待审 config_id={cfg.pk} "
         f"alpha={alpha} 操作人={account}"
     )
     return JsonResponse({'ok': True, 'config_id': cfg.pk})
 
 
+@ensure_csrf_cookie
 def platform_report(request):
     """用户举报机制配置页：GET 展示当前配置 + 启用状态。"""
     account = request.session.get('account', '')
@@ -852,7 +881,7 @@ def platform_report(request):
         .order_by('-轮次', '-id')
         .first()
     )
-    is_published = bool(latest_measure and latest_measure.取消轮次 is None)
+    is_published = bool(latest_measure and latest_measure.取消轮次 is None and latest_measure.status in ('pending', 'active'))
     return render(request, 'accounts/platform_report.html', {
         'name': account,
         'platform_id': platform_id,
@@ -861,17 +890,20 @@ def platform_report(request):
         'config': cfg,
         'is_published': is_published,
         'is_effective': bool(measure),
+        'latest_measure': latest_measure,
     })
 
 
 @require_http_methods(['POST'])
 def platform_report_save(request):
-    """保存用户举报配置参数（阈值、审核方式）。"""
+    """提交用户举报配置参数（阈值、审核方式）到管理员审核。"""
     account = request.session.get('account', '')
     if not account or request.session.get('role') != 'platform':
         return JsonResponse({'error': '未登录或非平台角色'}, status=403)
     platform_user = PlatformAccount.objects.filter(账号=account).first()
     platform_id = getattr(platform_user, '所属平台', 0) if platform_user else 0
+    if UserReportConfig.objects.filter(platform_id=platform_id, status__in=['pending', 'active']).exists():
+        return JsonResponse({'error': '该配置已提交待审或已生效，不能再次修改。'}, status=400)
     try:
         threshold = Decimal(request.POST.get('threshold', '0.30'))
     except Exception:
@@ -884,14 +916,17 @@ def platform_report_save(request):
         platform_id=platform_id,
         举报触发阈值=threshold,
         审核方式=review_method,
+        status='pending',
+        提交人账号=account,
     )
     action_log(
-        f"平台 {platform_id} 保存用户举报配置 config_id={cfg.pk} "
+        f"平台 {platform_id} 提交用户举报配置待审 config_id={cfg.pk} "
         f"阈值={threshold} 审核方式={review_method} 操作人={account}"
     )
     return JsonResponse({'ok': True, 'config_id': cfg.pk})
 
 
+@ensure_csrf_cookie
 def platform_revenue_penalty(request):
     """收益惩罚配置页：GET 展示当前配置 + 启用状态。"""
     account = request.session.get('account', '')
@@ -908,7 +943,7 @@ def platform_revenue_penalty(request):
         .order_by('-轮次', '-id')
         .first()
     )
-    is_published = bool(latest_measure and latest_measure.取消轮次 is None)
+    is_published = bool(latest_measure and latest_measure.取消轮次 is None and latest_measure.status in ('pending', 'active'))
     return render(request, 'accounts/platform_revenue_penalty.html', {
         'name': account,
         'platform_id': platform_id,
@@ -917,17 +952,20 @@ def platform_revenue_penalty(request):
         'config': cfg,
         'is_published': is_published,
         'is_effective': bool(measure),
+        'latest_measure': latest_measure,
     })
 
 
 @require_http_methods(['POST'])
 def platform_revenue_penalty_save(request):
-    """保存收益惩罚配置参数（β 值）。"""
+    """提交收益惩罚配置参数（β 值）到管理员审核。"""
     account = request.session.get('account', '')
     if not account or request.session.get('role') != 'platform':
         return JsonResponse({'error': '未登录或非平台角色'}, status=403)
     platform_user = PlatformAccount.objects.filter(账号=account).first()
     platform_id = getattr(platform_user, '所属平台', 0) if platform_user else 0
+    if RevenuePenaltyConfig.objects.filter(platform_id=platform_id, status__in=['pending', 'active']).exists():
+        return JsonResponse({'error': '该配置已提交待审或已生效，不能再次修改。'}, status=400)
     try:
         beta = Decimal(request.POST.get('beta', '0.50'))
     except Exception:
@@ -936,9 +974,11 @@ def platform_revenue_penalty_save(request):
     cfg = RevenuePenaltyConfig.objects.create(
         platform_id=platform_id,
         惩罚系数beta=beta,
+        status='pending',
+        提交人账号=account,
     )
     action_log(
-        f"平台 {platform_id} 保存收益惩罚配置 config_id={cfg.pk} "
+        f"平台 {platform_id} 提交收益惩罚配置待审 config_id={cfg.pk} "
         f"beta={beta} 操作人={account}"
     )
     return JsonResponse({'ok': True, 'config_id': cfg.pk})
@@ -1251,7 +1291,7 @@ def _get_effective_governance_measure(platform_id: int, measure_type: str, round
     """获取某平台某措施类型在指定轮次是否有效（生效且未取消），返回 PlatformGovernanceMeasure 或 None。"""
     return (
         PlatformGovernanceMeasure.objects
-        .filter(平台=platform_id, 措施类型=measure_type, 生效轮次__lte=round_num)
+        .filter(平台=platform_id, 措施类型=measure_type, 生效轮次__lte=round_num, status='active')
         .filter(Q(取消轮次__isnull=True) | Q(取消轮次__gt=round_num))
         .order_by('-生效轮次', '-id')
         .first()
@@ -1286,6 +1326,8 @@ def _get_effective_health_rule(platform_id: int, round_num: int):
         .first()
     )
     if not rec:
+        return None
+    if getattr(rec, 'status', None) and rec.status != 'active':
         return None
     if rec.生效轮次 and rec.生效轮次 > round_num:
         return None
