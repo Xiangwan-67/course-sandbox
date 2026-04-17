@@ -73,6 +73,9 @@
                     <svg class="btn-icon-svg" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path class="icon-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
                     <span class="btn-text">{% if has_collected %}已收藏{% else %}收藏{% endif %}</span>
                 </button>
+                <button type="button" id="btn_report" title="举报" {% if has_reported %}disabled{% endif %}>
+                    <span class="btn-text">{% if has_reported %}已举报{% else %}举报{% endif %}</span>
+                </button>
             </div>
             <div class="read-complete-wrap">
                 <button type="button" id="btn_read_complete" class="btn-read-complete">{% if has_read_complete %}<span class="btn-read-complete-icon">✓</span>已全文阅读完成{% else %}全文阅读完成{% endif %}</button>
@@ -156,6 +159,7 @@
         var btnLike = document.getElementById('btn_like');
         var btnCollect = document.getElementById('btn_collect');
         var btnReadComplete = document.getElementById('btn_read_complete');
+        var btnReport = document.getElementById('btn_report');
 
         function post(url, data, cb) {
             var form = new FormData();
@@ -191,6 +195,23 @@
                 }
             });
         };
+        if (btnReport) {
+            btnReport.onclick = function(){
+                if (btnReport.disabled) {
+                    alert('本轮已举报过该文章，不能取消或重复举报。');
+                    return;
+                }
+                post('{% url "accounts:user_article_report" article.pk %}', {}, function(d){
+                    if (d.ok) {
+                        btnReport.disabled = true;
+                        btnReport.querySelector('.btn-text').textContent = '已举报';
+                        alert('举报提交成功');
+                    } else if (d.error) {
+                        alert(d.error);
+                    }
+                });
+            };
+        }
 
         followBtn.onclick = function(){
             if (isFollowing) {

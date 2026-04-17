@@ -1242,9 +1242,12 @@ def _submit_user_report(user_account: str, article_id: int, platform_id: int, ro
         举报轮次=round_num,
         审核状态='pending',
     )
+    article = Article.objects.filter(pk=article_id).first()
+    writer_account = getattr(article, '写手账号', '')
     action_log(
-        f"用户举报 user={user_account} article_id={article_id} "
-        f"platform={platform_id} round={round_num} report_id={rec.pk}"
+        f"{PLATFORM_NAMES.get(platform_id, f'平台{platform_id}')}用户{user_account}"
+        f"在{round_num}轮次举报了{writer_account}写手的{article_id}文章 "
+        f"report_id={rec.pk}"
     )
     return rec
 
@@ -1263,7 +1266,16 @@ def _process_article_reports(platform_id: int, round_num: int):
     from accounts.models import UserReportConfig, ArticleReport, Article
     from django.db.models import Count
 
-    cfg = UserReportConfig.objects.filter(platform_id=platform_id).order_by('-id').first()
+    # 仅当该平台该轮次启用了用户举报机制时，才触发达阈值审核流程
+    measure = _get_effective_governance_measure(platform_id, 'user_report', round_num)
+    if not measure:
+        return
+
+    cfg = None
+    if getattr(measure, 'config_id', None):
+        cfg = UserReportConfig.objects.filter(pk=measure.config_id).first()
+    if not cfg:
+        cfg = UserReportConfig.objects.filter(platform_id=platform_id).order_by('-id').first()
     if not cfg:
         return
 
@@ -1659,13 +1671,19 @@ def user_article_view(request, article_id):
     action_log(f"用户 {account} 点击进入文章 article_id={article_id} 标题={title_short!r}")
     comments = list(article.评论列表.all().order_by('创建时间'))
     platform_id = request.session.get('user_browse_platform_id', 0)
-    has_liked = has_collected = has_read_complete = False
+    has_liked = has_collected = has_read_complete = has_reported = False
     try:
         user = UserAccount.objects.get(账号=account)
         is_following = user.关注列表.filter(写手账号=article.写手账号).exists()
         has_liked = UserArticleLike.objects.filter(用户=user, 文章=article).exists()
         has_collected = UserArticleCollect.objects.filter(用户=user, 文章=article).exists()
         has_read_complete = UserArticleReadComplete.objects.filter(用户=user, 文章=article).exists()
+        has_reported = ArticleReport.objects.filter(
+            platform_id=getattr(user, '所属平台', 0),
+            文章=article,
+            举报人=account,
+            举报轮次=_get_current_round(),
+        ).exists()
     except UserAccount.DoesNotExist:
         pass
     return render(request, 'accounts/article_detail.html', {
@@ -1678,6 +1696,7 @@ def user_article_view(request, article_id):
         'has_liked': has_liked,
         'has_collected': has_collected,
         'has_read_complete': has_read_complete,
+        'has_reported': has_reported,
     })
 
 
@@ -1810,7 +1829,7 @@ def user_article_unfollow(request, article_id):
 
 @require_http_methods(['POST'])
 def user_article_report(request, article_id):
-    """用户举报文章：若平台已启用用户举报功能包，则写入举报记录。"""
+    """用户举报文章：始终记录举报；达阈值审核仅在平台启用机制时触发。"""
     account = request.session.get('account', '')
     if not account or request.session.get('role') != 'user':
         return JsonResponse({'error': '未登录或非用户角色'}, status=403)
@@ -1826,10 +1845,6 @@ def user_article_report(request, article_id):
     platform_id = getattr(user, '所属平台', 0)
     round_num = _get_current_round()
 
-    measure = _get_effective_governance_measure(platform_id, 'user_report', round_num)
-    if not measure:
-        return JsonResponse({'error': '当前平台未启用用户举报功能'}, status=400)
-
     already = ArticleReport.objects.filter(
         platform_id=platform_id, 文章=article, 举报人=account, 举报轮次=round_num
     ).exists()
@@ -1837,6 +1852,12 @@ def user_article_report(request, article_id):
         return JsonResponse({'error': '本轮已举报过该文章'}, status=400)
 
     rec = _submit_user_report(account, article_id, platform_id, round_num)
+    article.report_count_current_round = ArticleReport.objects.filter(
+        platform_id=platform_id,
+        文章=article,
+        举报轮次=round_num,
+    ).count()
+    article.save(update_fields=['report_count_current_round'])
     return JsonResponse({'ok': True, 'report_id': rec.pk})
 
 
@@ -1881,6 +1902,8 @@ def end_round(request):
     settled_cycle_profit = []
     for pid in (0, 1):
         _recover_writer_health_for_platform(pid, round_to_settle)
+        # 先处理用户举报（若该轮启用），再做收益结算，保证后续惩罚链路可见。
+        _process_article_reports(pid, round_to_settle)
         _settle_article_revenue(pid, round_to_settle)
         cfg = _get_effective_profit_config(round_to_settle, pid) or ProfitWeightConfig.objects.order_by('-id').first()
         period = int(getattr(cfg, '利润展示窗口轮数', 4) or 4)
