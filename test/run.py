@@ -103,7 +103,7 @@ def _write_report(exit_code: int) -> None:
             hint_counter["数据库事务：可能需要在失败后用新 client 或检查 sqlite 连接回滚状态"] += 1
 
     lines: list[str] = []
-    lines.append("# 标题党检测自动化测试报告")
+    lines.append("# 平台治理自动化测试报告（标题党检测 + 用户举报）")
     lines.append("")
     lines.append(f"- 生成时间：{now}")
     lines.append(f"- 结果：{'通过' if exit_code == 0 else '失败'}（pytest exit_code={exit_code}）")

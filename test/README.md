@@ -1,4 +1,4 @@
-## 标题党检测自动化测试
+## 平台治理自动化测试（标题党检测 + 用户举报）
 
 ### 依赖
 在虚拟环境中安装测试依赖（仅需一次）：
@@ -22,4 +22,5 @@ python test/run.py
 
 ### 备注
 - 测试使用独立 sqlite 文件（默认：项目根目录下 `.pytest/sandbox_pytest.sqlite3`，避免与开发库 `db.sqlite3` 争用）。
+- 当前治理自动化覆盖：`test/tests/test_clickbait_detection.py`、`test/tests/test_user_report_detection.py`。
 

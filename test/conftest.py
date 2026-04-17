@@ -60,7 +60,7 @@ def _sandbox_seed_base_world(
     """
     pytest 测试库默认是“空库迁移”，这里预置最小可登录账号/轮次，保证视图级集成测试可跑。
     """
-    from accounts.models import PlatformAccount, SimulationRound, WriterAccount
+    from accounts.models import PlatformAccount, SimulationRound, UserAccount, WriterAccount
 
     with django_db_blocker.unblock():
         SimulationRound.objects.update_or_create(pk=1, defaults={"当前轮次": 1})
@@ -73,6 +73,11 @@ def _sandbox_seed_base_world(
         for i in range(1, 11):
             WriterAccount.objects.update_or_create(
                 账号=f"pytest_writer_{i}",
+                defaults={"密码": "pytest", "所属平台": 0},
+            )
+        for i in range(1, 21):
+            UserAccount.objects.update_or_create(
+                账号=f"pytest_user_{i}",
                 defaults={"密码": "pytest", "所属平台": 0},
             )
 
@@ -187,3 +192,70 @@ def client_writer_logged_in(client, db, writer_accounts):
     r = client.post("/", {"account": w.账号, "password": w.密码})
     assert r.status_code in (200, 302)
     return client, w
+
+
+@pytest.fixture
+def user_accounts(db):
+    from accounts.models import UserAccount
+
+    return list(UserAccount.objects.filter(账号__startswith="pytest_user_").order_by("账号"))
+
+
+@pytest.fixture
+def client_user_logged_in(client, db, user_accounts):
+    u = user_accounts[0]
+    r = client.post("/", {"account": u.账号, "password": u.密码})
+    assert r.status_code in (200, 302)
+    return client, u
+
+
+@pytest.fixture
+def user_report_config_factory(db, platform_account):
+    from accounts.models import UserReportConfig
+
+    def _factory(
+        *,
+        review_method: str = "auto",
+        threshold: str = "0.30",
+        status: str = "active",
+        submitter: str = "admin",
+    ):
+        cfg = UserReportConfig.objects.create(
+            platform_id=platform_account.所属平台,
+            举报触发阈值=threshold,
+            审核方式=review_method,
+            status=status,
+            提交人账号=submitter,
+            管理员确认账号="admin" if status == "active" else "",
+        )
+        return cfg
+
+    return _factory
+
+
+@pytest.fixture
+def enable_user_report_measure(db, platform_account, user_report_config_factory):
+    from accounts.models import PlatformGovernanceMeasure
+    from accounts.views import _get_current_round
+
+    current_round = _get_current_round()
+    cfg = user_report_config_factory(status="active", review_method="auto")
+    rec, _ = PlatformGovernanceMeasure.objects.get_or_create(
+        平台=platform_account.所属平台,
+        措施类型="user_report",
+        生效轮次=current_round,
+        defaults={
+            "轮次": max(1, current_round - 1),
+            "措施内容": {"举报触发阈值": str(cfg.举报触发阈值), "审核方式": cfg.审核方式},
+            "config_id": cfg.pk,
+            "发布人账号": platform_account.账号,
+            "status": "active",
+            "管理员确认账号": "admin",
+        },
+    )
+    rec.轮次 = max(1, current_round - 1)
+    rec.config_id = cfg.pk
+    rec.status = "active"
+    rec.取消轮次 = None
+    rec.save(update_fields=["轮次", "config_id", "status", "取消轮次"])
+    return rec

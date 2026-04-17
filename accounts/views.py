@@ -1828,6 +1828,8 @@ def user_article_unfollow(request, article_id):
 
 
 @require_http_methods(['POST'])
+@_serialize_sqlite_writes
+@retry_on_db_locked(max_retries=3, delay=0.5)
 def user_article_report(request, article_id):
     """用户举报文章：始终记录举报；达阈值审核仅在平台启用机制时触发。"""
     account = request.session.get('account', '')
@@ -1852,12 +1854,10 @@ def user_article_report(request, article_id):
         return JsonResponse({'error': '本轮已举报过该文章'}, status=400)
 
     rec = _submit_user_report(account, article_id, platform_id, round_num)
-    article.report_count_current_round = ArticleReport.objects.filter(
-        platform_id=platform_id,
-        文章=article,
-        举报轮次=round_num,
-    ).count()
-    article.save(update_fields=['report_count_current_round'])
+    # 举报后即时更新文章举报计数（并发场景使用原子自增避免 count() 锁表）
+    Article.objects.filter(pk=article.pk).update(
+        report_count_current_round=F('report_count_current_round') + 1
+    )
     return JsonResponse({'ok': True, 'report_id': rec.pk})
 
 
