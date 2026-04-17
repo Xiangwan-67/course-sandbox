@@ -4,6 +4,7 @@ import os
 import re
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -12,6 +13,21 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 TEST_DIR = ROOT / "test"
 REPORTS_DIR = TEST_DIR / "reports"
+
+
+CASE_DISPLAY_MAP = {
+    "test_traffic_penalty_config_page_and_save_success": "平台负责人提交流量惩罚配置，系统保存待审核配置",
+    "test_traffic_penalty_save_duplicate_rejected": "平台负责人重复提交流量惩罚配置被拦截",
+    "test_traffic_penalty_publish_requires_approved_config": "平台负责人未有可用配置时提交发布被拒绝",
+    "test_traffic_penalty_publish_next_round_effective": "平台负责人发布后下一轮生效，写手标题党文章命中惩罚",
+    "test_traffic_penalty_not_applied_for_non_clickbait": "写手发布非标题党文章，不应触发流量惩罚",
+    "test_traffic_penalty_cancel_next_round_disabled": "平台负责人取消流量惩罚后下一轮失效",
+    "test_traffic_penalty_alpha_boundaries[0.00-0.0000-0]": "alpha=0 边界：标题党文章发现流量降至最低边界",
+    "test_traffic_penalty_alpha_boundaries[1.00-1.0000-None]": "alpha=1 边界：标题党文章不额外降权",
+    "test_traffic_penalty_invalid_alpha_and_permission": "非法参数与权限异常：默认值兜底且无权访问被拒绝",
+    "test_traffic_penalty_with_health_rule_records_gamma": "流量惩罚与健康分联动：gamma 与惩罚记录一致",
+    "test_traffic_penalty_round_result_matches_database": "平台查看治理结果页：受流量惩罚文章数与数据库一致",
+}
 
 
 def _run_pytest() -> int:
@@ -76,6 +92,49 @@ def _extract_failure_summary(stdout: str) -> list[str]:
     return dedup[:30]
 
 
+def _parse_junit_cases(junit_path: Path) -> list[dict]:
+    if not junit_path.exists():
+        return []
+    try:
+        tree = ET.parse(junit_path)
+    except Exception:
+        return []
+
+    root = tree.getroot()
+    cases: list[dict] = []
+    for tc in root.iter("testcase"):
+        name = tc.attrib.get("name", "")
+        classname = tc.attrib.get("classname", "")
+        time_cost = tc.attrib.get("time", "0")
+        status = "passed"
+        reason = ""
+        detail = ""
+        node = None
+        for tag in ("failure", "error", "skipped"):
+            node = tc.find(tag)
+            if node is not None:
+                status = "failed" if tag in ("failure", "error") else "skipped"
+                reason = (node.attrib.get("message") or "").strip()
+                detail = (node.text or "").strip()
+                break
+        if not reason and detail:
+            reason = detail.splitlines()[0].strip()
+        if not reason:
+            reason = "—"
+        cases.append(
+            {
+                "name": name,
+                "display_name": CASE_DISPLAY_MAP.get(name, name),
+                "classname": classname,
+                "time": time_cost,
+                "status": status,
+                "reason": reason,
+                "detail": detail,
+            }
+        )
+    return cases
+
+
 def _write_report(exit_code: int) -> None:
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     junit_path = REPORTS_DIR / "junit.xml"
@@ -83,6 +142,7 @@ def _write_report(exit_code: int) -> None:
     stderr_path = REPORTS_DIR / "pytest_stderr.txt"
 
     total, failures, errors = _parse_junit_results(junit_path)
+    case_rows = _parse_junit_cases(junit_path)
     passed = max(0, total - failures - errors)
 
     stdout = ""
@@ -103,7 +163,7 @@ def _write_report(exit_code: int) -> None:
             hint_counter["数据库事务：可能需要在失败后用新 client 或检查 sqlite 连接回滚状态"] += 1
 
     lines: list[str] = []
-    lines.append("# 平台治理自动化测试报告（标题党检测 + 用户举报）")
+    lines.append("# 平台治理自动化测试报告（标题党检测 + 用户举报 + 流量惩罚）")
     lines.append("")
     lines.append(f"- 生成时间：{now}")
     lines.append(f"- 结果：{'通过' if exit_code == 0 else '失败'}（pytest exit_code={exit_code}）")
@@ -116,6 +176,25 @@ def _write_report(exit_code: int) -> None:
     lines.append(f"- JUnit XML：`{junit_path.relative_to(ROOT)}`")
     lines.append(f"- 日志摘录：`{(REPORTS_DIR / 'log_excerpt.txt').relative_to(ROOT)}`（如生成）")
     lines.append("")
+    lines.append("## 业务用例逐项结果")
+    lines.append("")
+    if case_rows:
+        for idx, row in enumerate(case_rows, start=1):
+            status_cn = "通过" if row["status"] == "passed" else ("失败" if row["status"] == "failed" else "跳过")
+            lines.append(f"### 用例 {idx}")
+            lines.append(f"- 业务口径：{row['display_name']}")
+            lines.append(f"- pytest用例：`{row['classname']}::{row['name']}`")
+            lines.append(f"- 检测结果：{status_cn}")
+            lines.append(f"- 耗时（秒）：{row['time']}")
+            if row["status"] == "failed":
+                lines.append(f"- 问题原因：{row['reason']}")
+            else:
+                lines.append("- 问题原因：—")
+            lines.append("")
+    else:
+        lines.append("- 未解析到 junit 用例明细，请检查 `junit.xml` 是否生成。")
+        lines.append("")
+
     lines.append("## 失败摘要（自动抽取，可能不完整）")
     lines.append("")
     if exit_code == 0:
