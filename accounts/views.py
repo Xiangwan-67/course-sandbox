@@ -8,6 +8,8 @@ from django.db.models import F, Sum, Q
 from decimal import Decimal
 from django.views.decorators.csrf import ensure_csrf_cookie
 import json, time
+import threading
+from django.conf import settings
 from accounts.action_logger import action_log
 from accounts.db_retry import retry_on_db_locked
 from accounts.models import (
@@ -23,6 +25,24 @@ from accounts.models import (
 )
 
 PLATFORM_NAMES = {0: '平台1', 1: '平台2'}
+
+_SANDBOX_SQLITE_WRITE_LOCK = threading.Lock()
+
+
+def _serialize_sqlite_writes(view_func):
+    """
+    测试/沙盘场景下 sqlite 对并发写非常敏感（尤其 Django TestClient + 多线程）。
+    可选：通过 settings.SANDBOX_SQLITE_SERIALIZE_WRITES=True 将关键写路径串行化，
+    语义不变，但显著降低 sqlite lock 误报。
+    """
+
+    def wrapper(request, *args, **kwargs):
+        if getattr(settings, "SANDBOX_SQLITE_SERIALIZE_WRITES", False):
+            with _SANDBOX_SQLITE_WRITE_LOCK:
+                return view_func(request, *args, **kwargs)
+        return view_func(request, *args, **kwargs)
+
+    return wrapper
 
 # 当前模拟轮次从 DB 表「模拟轮次」读取，持久化；结束本轮时仅做 轮次+1，不删任何数据
 
@@ -319,7 +339,10 @@ def platform_home(request):
         elif m_type == 'clickbait_detection':
             c_cfg = ClickbaitDetectionConfig.objects.filter(platform_id=platform_id).order_by('-id').first()
             if c_cfg:
-                summary = f"阈值={c_cfg.判定阈值}，概率={c_cfg.判定概率值}"
+                summary = (
+                    f"标题夸张度阈值X={getattr(c_cfg, '标题夸张度阈值X', 4)}，"
+                    f"内容相关度阈值Y={getattr(c_cfg, '内容相关度阈值Y', 3)}"
+                )
         elif m_type == 'user_report':
             r_cfg = UserReportConfig.objects.filter(platform_id=platform_id).order_by('-id').first()
             if r_cfg:
@@ -492,7 +515,10 @@ def platform_round_result(request):
         if m_type == 'clickbait_detection':
             cfg = ClickbaitDetectionConfig.objects.filter(pk=measure.config_id).first() if measure.config_id else None
             if cfg:
-                summary = f"阈值={cfg.判定阈值}，概率值={cfg.判定概率值}"
+                summary = (
+                    f"标题夸张度阈值X={getattr(cfg, '标题夸张度阈值X', 4)}，"
+                    f"内容相关度阈值Y={getattr(cfg, '内容相关度阈值Y', 3)}"
+                )
         elif m_type == 'user_report':
             cfg = UserReportConfig.objects.filter(pk=measure.config_id).first() if measure.config_id else None
             if cfg:
@@ -695,7 +721,10 @@ def platform_governance_publish(request):
         if not cfg:
             return JsonResponse({'error': '管理员尚未配置标题党检测默认参数，请联系管理员在后台添加并审核生效后再开启。'}, status=400)
         config_id = int(cfg.pk)
-        content = {'判定阈值': cfg.判定阈值, '判定概率值': str(cfg.判定概率值)}
+        content = {
+            '标题夸张度阈值X': int(getattr(cfg, '标题夸张度阈值X', 4) or 4),
+            '内容相关度阈值Y': int(getattr(cfg, '内容相关度阈值Y', 3) or 3),
+        }
     elif measure_type == 'traffic_penalty':
         cfg = TrafficPenaltyConfig.objects.filter(platform_id=platform_id).order_by('-id').first()
         if not cfg or cfg.status not in ('pending', 'active'):
@@ -1301,9 +1330,9 @@ def _get_effective_governance_measure(platform_id: int, measure_type: str, round
 def is_clickbait(article, platform_id: int, round_num: int) -> bool:
     """标题党检测 — 可插拔接口。
 
-    当前实现：恒返回 False（占位）。
-    后续在此处插入具体判定公式，基于 article 的标题夸张度(X)、内容相关度(Y)、
-    ClickbaitDetectionConfig 中的阈值和概率值等参数。
+    判定规则（使用管理员生效配置）：
+    当 写手文章的 标题夸张度_校准值 >= 标题夸张度阈值X 且 内容相关度_校准值 < 内容相关度阈值Y 时，
+    判定为标题党。
 
     返回 True 表示该文章被判定为标题党，False 表示非标题党。
     若平台未启用标题党检测功能包，直接返回 False。
@@ -1311,10 +1340,28 @@ def is_clickbait(article, platform_id: int, round_num: int) -> bool:
     measure = _get_effective_governance_measure(platform_id, 'clickbait_detection', round_num)
     if not measure:
         return False
-    # 读取配置（即使当前不使用，也验证配置可读性）
-    _cfg = ClickbaitDetectionConfig.objects.filter(platform_id=platform_id).order_by('-id').first()
-    # TODO: 后续在此处插入具体判定公式
-    return False
+    cfg = (
+        ClickbaitDetectionConfig.objects
+        .filter(platform_id=platform_id, status='active')
+        .order_by('-id')
+        .first()
+    )
+    if not cfg:
+        return False
+
+    try:
+        X_threshold = int(getattr(cfg, '标题夸张度阈值X', 4) or 4)
+    except Exception:
+        X_threshold = 4
+    try:
+        Y_threshold = int(getattr(cfg, '内容相关度阈值Y', 3) or 3)
+    except Exception:
+        Y_threshold = 3
+
+    X = int(article.标题夸张度_校准值 or article.标题夸张度_初始值 or 0)
+    Y = int(article.内容相关度_校准值 or article.内容相关度_初始值 or 0)
+
+    return (X >= X_threshold) and (Y < Y_threshold)
 
 
 def _get_effective_health_rule(platform_id: int, round_num: int):
@@ -1861,6 +1908,7 @@ def end_round(request):
 
 
 @require_http_methods(['POST'])
+@_serialize_sqlite_writes
 @retry_on_db_locked(max_retries=3, delay=0.5)
 def writer_start_article(request):
     """写手点击「发布文章」时创建文章对象，并将 article_id 存入 session。"""
@@ -1965,6 +2013,7 @@ def _do_article_push(article, discover_ratio: Decimal = Decimal('0.5')):
 
 
 @require_http_methods(['POST'])
+@_serialize_sqlite_writes
 @retry_on_db_locked(max_retries=3, delay=0.5)
 def writer_select_title(request):
     """写手选择标题后：存标题文本，并将该标题对应的实际夸张度存为 标题夸张度_校准值。"""
@@ -2000,6 +2049,7 @@ def writer_select_title(request):
 
 
 @require_http_methods(['POST'])
+@_serialize_sqlite_writes
 @retry_on_db_locked(max_retries=3, delay=0.5)
 def writer_select_body(request):
     """写手选择正文后：存正文文本，并将该正文对应的实际相关度存为 内容相关度_校准值。"""
@@ -2039,37 +2089,33 @@ def writer_select_body(request):
     writer_platform = getattr(writer, '所属平台', 0) if writer else 0
     round_num = article.轮次
 
-    # 标题党检测（无论平台是否启用检测，都记录检测结果）
+    # 标题党检测：仅当功能包生效时才执行并落库结果（符合测试说明书要求）
     X = article.标题夸张度_校准值 or article.标题夸张度_初始值 or 0
     Y = article.内容相关度_校准值 or article.内容相关度_初始值 or 0
     detection_executed = bool(_get_effective_governance_measure(writer_platform, 'clickbait_detection', round_num))
-    clickbait = is_clickbait(article, writer_platform, round_num) if detection_executed else False
-
-    # 记录检测结果
-    ClickbaitDetectionResult.objects.create(
-        文章=article,
-        轮次=round_num,
-        平台=writer_platform,
-        标题夸张度X=X,
-        内容相关度Y=Y,
-        自动检测是否执行=detection_executed,
-        检测结果=clickbait if detection_executed else None,
-    )
-
-    # 更新文章标题党标记
+    clickbait = False
     if detection_executed:
+        clickbait = is_clickbait(article, writer_platform, round_num)
+        # 记录检测结果
+        ClickbaitDetectionResult.objects.create(
+            文章=article,
+            轮次=round_num,
+            平台=writer_platform,
+            标题夸张度X=X,
+            内容相关度Y=Y,
+            自动检测是否执行=True,
+            检测结果=clickbait,
+        )
+        # 更新文章标题党标记
         article.is_clickbait = clickbait
         article.clickbait_detected_at = round_num
         if clickbait:
             article.method_auto_rule = True
         article.save(update_fields=['is_clickbait', 'clickbait_detected_at', 'method_auto_rule'])
-
-    action_log(
-        f"标题党检测 writer={account} article_id={article.pk} round={round_num} "
-        f"platform={writer_platform} X={X} Y={Y} "
-        f"detection_executed={'1' if detection_executed else '0'} "
-        f"clickbait={'1' if clickbait else '0'}"
-    )
+        action_log(
+            f"{PLATFORM_NAMES.get(writer_platform, f'平台{writer_platform}')} 写手{account} 文章{article.pk} 进入标题党检测功能，"
+            f"检测结果为{'标题党' if clickbait else '非标题党'}，已更新文章表与标题党检测结果表。"
+        )
 
     # 账号健康分规则：扣分
     health_rule = _get_effective_health_rule(writer_platform, round_num)

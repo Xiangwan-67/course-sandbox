@@ -440,8 +440,8 @@ class ClickbaitDetectionConfig(models.Model):
     """标题党检测功能包参数配置（按平台独立）。"""
 
     platform_id = models.IntegerField()
-    判定阈值 = models.IntegerField(default=2)
-    判定概率值 = models.DecimalField(max_digits=3, decimal_places=2, default=Decimal('0.80'))
+    标题夸张度阈值X = models.IntegerField(default=4)
+    内容相关度阈值Y = models.IntegerField(default=3)
     创建时间 = models.DateTimeField(auto_now_add=True)
     STATUS_CHOICES = [
         ('draft', '草稿'),

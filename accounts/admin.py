@@ -257,7 +257,7 @@ class PlatformSwitchSurveyAdmin(admin.ModelAdmin):
 
 @admin.register(ClickbaitDetectionConfig)
 class ClickbaitDetectionConfigAdmin(admin.ModelAdmin):
-    list_display = ['id', 'platform_id', '判定阈值', '判定概率值', 'status', '提交人账号', '管理员确认账号', '管理员确认时间', '创建时间']
+    list_display = ['id', 'platform_id', '标题夸张度阈值X', '内容相关度阈值Y', 'status', '提交人账号', '管理员确认账号', '管理员确认时间', '创建时间']
     list_filter = ['platform_id', 'status']
     actions = ['approve_configs', 'reject_configs']
 
