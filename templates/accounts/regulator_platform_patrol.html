@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>监管机构 - 平台巡查</title>
+  <style>
+    .ok-msg { color: #0a0; margin-top: 12px; white-space: pre-line; }
+    .err-msg { color: #a00; margin-top: 12px; }
+    fieldset { max-width: 480px; padding: 14px; border: 1px solid #ccc; }
+  </style>
+</head>
+<body>
+  <p>
+    <a href="{% url 'accounts:regulator_home' %}">返回监管主页</a>
+    |
+    <a href="{% url 'accounts:logout' %}">退出登录</a>
+  </p>
+
+  <h2>巡查参数配置</h2>
+  <p>当前轮次：第 {{ current_round }} 轮；目标平台：<strong>{{ platform_name }}</strong>（编号 {{ platform_id }}）</p>
+
+  {% if patrol_pending %}
+    <p>该平台已有<strong>待审核</strong>的平台巡查申请，请等待管理员处理后再发起。</p>
+  {% else %}
+    <fieldset>
+      <legend>巡查参数</legend>
+      <div style="margin-top:8px;">
+        <label>巡查比例（0～1）：<input type="number" id="patrol-ratio" value="0.5" min="0" max="1" step="0.01" /></label>
+      </div>
+      <div style="margin-top:8px;">
+        <label>起始轮次：<input type="number" id="start-round" value="1" min="1" step="1" /></label>
+      </div>
+      <div style="margin-top:8px;">
+        <label>终止轮次：<input type="number" id="end-round" value="1" min="1" step="1" /></label>
+      </div>
+      <div style="margin-top:14px;">
+        <button type="button" id="submit-patrol-btn">提交申请</button>
+        <button type="button" id="cancel-patrol-btn">取消</button>
+      </div>
+    </fieldset>
+
+    <div id="patrol-msg" class="ok-msg" hidden></div>
+    <div id="patrol-err" class="err-msg" hidden></div>
+  {% endif %}
+
+  <script>
+    function getCookie(name) {
+      const value = `; ${document.cookie}`;
+      const parts = value.split(`; ${name}=`);
+      if (parts.length === 2) return parts.pop().split(';').shift();
+      return '';
+    }
+
+    document.getElementById('cancel-patrol-btn') && document.getElementById('cancel-patrol-btn').addEventListener('click', function () {
+      window.location.href = '{% url "accounts:regulator_home" %}';
+    });
+
+    const submitBtn = document.getElementById('submit-patrol-btn');
+    if (submitBtn) {
+      submitBtn.addEventListener('click', function () {
+        const msg = document.getElementById('patrol-msg');
+        const err = document.getElementById('patrol-err');
+        msg.hidden = true;
+        err.hidden = true;
+        const body = {
+          platform_id: {{ platform_id }},
+          patrol_ratio: document.getElementById('patrol-ratio').value,
+          start_round: parseInt(document.getElementById('start-round').value, 10),
+          end_round: parseInt(document.getElementById('end-round').value, 10),
+        };
+        fetch('{% url "accounts:regulator_platform_patrol_submit" %}', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCookie('csrftoken'),
+          },
+          body: JSON.stringify(body),
+          credentials: 'same-origin',
+        })
+          .then(function (r) { return r.json().then(function (data) { return { ok: r.ok, data: data }; }); })
+          .then(function (res) {
+            if (res.ok && res.data.ok) {
+              msg.textContent = '√申请已提交\n等待管理员审核...';
+              msg.hidden = false;
+            } else {
+              err.textContent = (res.data && res.data.error) ? res.data.error : '提交失败';
+              err.hidden = false;
+            }
+          })
+          .catch(function () {
+            err.textContent = '网络错误';
+            err.hidden = false;
+          });
+      });
+    }
+  </script>
+</body>
+</html>

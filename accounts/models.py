@@ -192,6 +192,8 @@ class PlatformPatrolResult(models.Model):
     抽查文章数 = models.PositiveIntegerField(default=0)
     抽查文章列表 = models.JSONField(default=list, blank=True)
     标题党率 = models.DecimalField(max_digits=7, decimal_places=6, default=Decimal('0'))
+    # 管理员审批执行巡查时的模拟轮次，用于监测窗口「最近更新轮次：x轮前」
+    执行轮次 = models.PositiveIntegerField(default=1)
     创建时间 = models.DateTimeField(auto_now_add=True)
 
     class Meta:

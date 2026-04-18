@@ -186,7 +186,7 @@ class PlatformPatrolApplicationAdmin(admin.ModelAdmin):
 class PlatformPatrolResultAdmin(admin.ModelAdmin):
     list_display = [
         'id', '申请记录', '平台编号', '平台名称', '巡查比例',
-        '起始轮次', '终止轮次', '用户数', '抽查文章数', '标题党率', '创建时间',
+        '起始轮次', '终止轮次', '执行轮次', '用户数', '抽查文章数', '标题党率', '创建时间',
     ]
     list_filter = ['平台编号']
 

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>监管机构 - 专项整治行动管理</title>
+  <title>监管机构 - 监管主页</title>
   <style>
     .tab-btn { padding: 6px 14px; margin-right: 8px; cursor: pointer; border: 1px solid #ccc; background: #f5f5f5; }
     .tab-btn.active { background: #fff; border-bottom-color: #fff; font-weight: bold; }
@@ -13,6 +13,51 @@
     th, td { border: 1px solid #ddd; padding: 8px 10px; text-align: left; }
     th { background: #fafafa; }
     .op-wait { color: #999; cursor: not-allowed; }
+    .monitor-section { margin-bottom: 28px; }
+    .monitor-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      align-items: stretch;
+      margin-top: 12px;
+    }
+    .monitor-box {
+      flex: 1;
+      min-width: 200px;
+      max-width: 320px;
+      border: 1px solid #bbb;
+      border-radius: 6px;
+      padding: 12px 14px 14px;
+      background: #fafafa;
+      display: flex;
+      flex-direction: column;
+    }
+    .monitor-platform-title {
+      text-align: center;
+      font-weight: bold;
+      margin-bottom: 10px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #ddd;
+    }
+    .monitor-fields { font-size: 14px; line-height: 1.75; flex: 1; }
+    .monitor-update { margin-top: 10px; color: #444; font-size: 13px; }
+    .monitor-action {
+      margin-top: 12px;
+      text-align: center;
+      padding-top: 10px;
+      border-top: 1px solid #e0e0e0;
+    }
+    .monitor-action a {
+      display: inline-block;
+      padding: 6px 16px;
+      border: 1px solid #333;
+      background: #fff;
+      color: #111;
+      text-decoration: none;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .monitor-action a:hover { background: #f0f0f0; }
   </style>
 </head>
 <body>
@@ -21,6 +66,44 @@
     |
     <a href="{% url 'accounts:logout' %}">退出登录</a>
   </p>
+
+  <section class="monitor-section">
+    <h2>平台监测系统</h2>
+    <div class="monitor-row">
+      {% for box in monitoring_boxes %}
+        <div class="monitor-box">
+          <div class="monitor-platform-title">{{ box.platform_name }}</div>
+          <div class="monitor-fields">
+            <div>当前轮次：第 {{ box.current_round }} 轮</div>
+            {% if box.has_patrol %}
+              <div>用户数：{{ box.user_count }}</div>
+              <div>文章数：{{ box.article_count }}</div>
+              <div>标题党率：{{ box.title_rate_display }}</div>
+              <div>期间：{{ box.period_display }}</div>
+            {% else %}
+              <div>用户数：无巡查记录</div>
+              <div>文章数：无巡查记录</div>
+              <div>标题党率：无巡查记录</div>
+              <div>期间：无巡查记录</div>
+            {% endif %}
+            {% if box.has_patrol %}
+              <div class="monitor-update">
+                最近更新轮次：{% if box.rounds_since_update == 0 %}本轮{% else %}{{ box.rounds_since_update }}轮前{% endif %}
+              </div>
+            {% else %}
+              <div class="monitor-update">最近更新：无巡查记录</div>
+            {% endif %}
+          </div>
+          {% if box.has_pending %}
+            <p style="font-size:12px;color:#666;margin:8px 0 0;text-align:center;">该平台有待审核的巡查申请</p>
+          {% endif %}
+          <div class="monitor-action">
+            <a href="{% url 'accounts:regulator_platform_patrol' %}?platform_id={{ box.platform_id }}">启动巡查</a>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  </section>
 
   <h2>专项整治行动管理</h2>
   <p>当前轮次：第 {{ current_round }} 轮；进行中的整治：{{ ongoing_count }} 项</p>

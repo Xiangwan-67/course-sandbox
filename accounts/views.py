@@ -596,6 +596,39 @@ def platform_round_result(request):
     })
 
 
+def _regulator_monitoring_boxes(current_round: int):
+    """监管主页「平台监测系统」各平台框：取该平台最新一条已落库的 PlatformPatrolResult。"""
+    boxes = []
+    for item in _all_platform_choices():
+        pid = item['id']
+        latest = (
+            PlatformPatrolResult.objects.filter(平台编号=pid)
+            .order_by('-创建时间', '-id')
+            .first()
+        )
+        patrol_pending = PlatformPatrolApplication.objects.filter(
+            平台编号=pid, 申请状态='pending'
+        ).exists()
+        row = {
+            'platform_id': pid,
+            'platform_name': item['name'],
+            'has_patrol': latest is not None,
+            'current_round': current_round,
+            'has_pending': patrol_pending,
+        }
+        if latest:
+            exec_r = int(latest.执行轮次)
+            rounds_ago = max(0, int(current_round) - exec_r)
+            rate_pct = float(latest.标题党率) * 100.0
+            row['user_count'] = latest.用户数
+            row['article_count'] = latest.抽查文章数
+            row['title_rate_display'] = f'{rate_pct:.2f}%'
+            row['period_display'] = f'第{latest.起始轮次}–{latest.终止轮次}轮'
+            row['rounds_since_update'] = rounds_ago
+        boxes.append(row)
+    return boxes
+
+
 def _regulator_progress_tables(current_round: int):
     """拆分为进行中 / 已完成 表格数据；并同步过期状态、补建抽查结果行。"""
     _sync_regulation_actions_finished(current_round)
@@ -654,7 +687,7 @@ def _regulator_progress_tables(current_round: int):
 
 @ensure_csrf_cookie
 def regulator_home(request):
-    """监管机构主页：专项整治行动管理（进度窗口）。"""
+    """监管机构主页：平台监测系统 + 专项整治行动管理。"""
     account = request.session.get('account', '')
     if not account or request.session.get('role') != 'regulator':
         return redirect('accounts:login')
@@ -667,6 +700,36 @@ def regulator_home(request):
         'ongoing_rows': progress['ongoing_rows'],
         'completed_rows': progress['completed_rows'],
         'ongoing_count': progress['ongoing_count'],
+        'monitoring_boxes': _regulator_monitoring_boxes(current_round),
+    })
+
+
+@ensure_csrf_cookie
+def regulator_platform_patrol(request):
+    """平台巡查参数配置页（从监测系统「启动巡查」进入）。"""
+    account = request.session.get('account', '')
+    if not account or request.session.get('role') != 'regulator':
+        return redirect('accounts:login')
+
+    current_round = _get_current_round()
+    raw_pid = request.GET.get('platform_id', '0')
+    try:
+        platform_id = int(raw_pid)
+    except (TypeError, ValueError):
+        platform_id = 0
+    valid_ids = {item['id'] for item in _all_platform_choices()}
+    if platform_id not in valid_ids:
+        platform_id = 0
+    pname = _platform_name(platform_id)
+    patrol_pending = PlatformPatrolApplication.objects.filter(
+        平台编号=platform_id, 申请状态='pending'
+    ).exists()
+    return render(request, 'accounts/regulator_platform_patrol.html', {
+        'name': account,
+        'current_round': current_round,
+        'platform_id': platform_id,
+        'platform_name': pname,
+        'patrol_pending': patrol_pending,
     })
 
 
@@ -1838,6 +1901,7 @@ def _execute_platform_patrol(application):
         抽查文章数=n,
         抽查文章列表=sampled_ids,
         标题党率=rate,
+        执行轮次=current_round,
     )
     return result, None
 
