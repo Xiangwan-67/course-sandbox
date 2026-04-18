@@ -47,6 +47,14 @@ CASE_DISPLAY_MAP = {
     "test_health_recovery_not_run_when_measure_not_effective": "账号健康分治理措施未生效时，不执行健康分恢复",
     "test_health_deduction_floor_at_zero": "健康分扣减下限为0，不出现负分",
     "test_account_health_publish_permission_denied": "非平台角色提交账号健康分发布被拒绝",
+    "test_platform_performance_page_renders_sections": "平台负责人访问绩效方案页，页面基础区域可见",
+    "test_platform_performance_submit_creates_pending_record_and_log": "平台负责人提报绩效权重，系统写入待审核记录并落日志",
+    "test_platform_performance_submit_requires_platform_role": "非平台角色提交绩效方案被拒绝",
+    "test_platform_performance_submit_invalid_decimal_returns_400": "绩效权重参数格式非法时返回错误",
+    "test_platform_performance_submit_total_not_positive_returns_400": "绩效权重和不大于0时被校验拦截",
+    "test_platform_performance_apply_deprecated_returns_410": "旧绩效方案应用接口已废弃并返回410",
+    "test_platform_performance_page_shows_active_and_pending_scheme": "绩效方案页可同时回显生效方案与待审核方案",
+    "test_end_round_uses_active_performance_weights_and_records_settlement": "轮次结算按生效绩效权重计算收益并写入结算明细",
 }
 
 
