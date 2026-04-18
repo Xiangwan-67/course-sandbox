@@ -11,12 +11,12 @@ import json, time
 import random
 import threading
 from django.conf import settings
-from accounts.action_logger import action_log, regulator_action_log
+from accounts.action_logger import action_log, regulator_action_log, system_action_log
 from accounts.db_retry import retry_on_db_locked
 from accounts.models import (
     WriterAccount, UserAccount, PlatformAccount, RegulatorAccount,
     RegulationActionApplication, RegulationAction, PlatformSpotCheckResult,
-    PlatformPatrolApplication, PlatformPatrolResult,
+    PlatformPatrolApplication, PlatformPatrolResult, AdminBaseConfig,
     ProfitWeightConfig, PlatformCycleProfitRecord, PlatformGovernanceMeasure, PlatformPerformanceScheme, Article, Comment, PlatformSwitchSurvey,
     UserFollowWriter, UnfollowSurvey, ArticlePush, ArticlePushDetail,
     UserArticleLike, UserArticleCollect, UserArticleReadComplete,
@@ -1834,34 +1834,58 @@ def is_clickbait(article, platform_id: int, round_num: int) -> bool:
     return (X >= X_threshold) and (Y < Y_threshold)
 
 
-def _execute_platform_patrol(application):
-    """
-    执行平台巡查并写入 PlatformPatrolResult。
-    返回 (result, None) 成功，或 (None, error_message)。
-    """
-    current_round = _get_current_round()
-    if application.起始轮次 > application.终止轮次:
-        return None, '起始轮次不能大于终止轮次'
-    if application.终止轮次 >= current_round:
-        return None, '终止轮次须严格小于当前轮次'
+def _get_admin_auto_patrol_ratio():
+    """《管理员基础配置表》中的自动巡查比例；无配置时默认 0.5。"""
+    cfg = AdminBaseConfig.objects.filter(pk=1).first()
+    if not cfg:
+        return Decimal('0.5')
+    try:
+        r = cfg.自动巡查比例
+        if r is None:
+            return Decimal('0.5')
+        return Decimal(str(r))
+    except Exception:
+        return Decimal('0.5')
 
-    if PlatformPatrolResult.objects.filter(申请记录=application).exists():
+
+def _run_platform_patrol_core(
+    platform_id: int,
+    platform_name: str,
+    ratio: Decimal,
+    start_r: int,
+    end_r: int,
+    exec_round: int,
+    *,
+    application=None,
+    patrol_kind: str = 'manual',
+    regulation_action=None,
+    rng_seed: int = 0,
+):
+    """
+    执行一次平台巡查抽样并写入 PlatformPatrolResult（手动或自动）。
+    exec_round：写入「执行轮次」的当前模拟轮次（通常为巡查执行时点的当前轮次）。
+    """
+    if start_r > end_r:
+        return None, '起始轮次不能大于终止轮次'
+    if end_r >= exec_round:
+        return None, '终止轮次须严格小于当前执行轮次'
+
+    if application is not None and PlatformPatrolResult.objects.filter(申请记录=application).exists():
         return None, '该申请已存在巡查结果'
 
-    platform_id = application.平台编号
     writers = list(WriterAccount.objects.filter(所属平台=platform_id).values_list('账号', flat=True))
     id_list = list(
         Article.objects.filter(
             写手账号__in=writers,
-            轮次__gte=application.起始轮次,
-            轮次__lte=application.终止轮次,
+            轮次__gte=start_r,
+            轮次__lte=end_r,
         ).values_list('id', flat=True)
     )
     total = len(id_list)
-    ratio = float(application.巡查比例)
-    sample_count = max(0, int(round(total * ratio)))
+    ratio_f = float(ratio)
+    sample_count = max(0, int(round(total * ratio_f)))
 
-    rng = random.Random(application.pk)
+    rng = random.Random(rng_seed)
     if total == 0:
         sampled_ids = []
     else:
@@ -1892,18 +1916,112 @@ def _execute_platform_patrol(application):
 
     result = PlatformPatrolResult.objects.create(
         申请记录=application,
+        专项行动=regulation_action,
+        巡查类型=patrol_kind,
         平台编号=platform_id,
-        平台名称=application.平台名称,
-        巡查比例=application.巡查比例,
-        起始轮次=application.起始轮次,
-        终止轮次=application.终止轮次,
+        平台名称=platform_name,
+        巡查比例=ratio,
+        起始轮次=start_r,
+        终止轮次=end_r,
         用户数=user_count,
         抽查文章数=n,
         抽查文章列表=sampled_ids,
         标题党率=rate,
-        执行轮次=current_round,
+        执行轮次=exec_round,
     )
     return result, None
+
+
+def _execute_platform_patrol(application):
+    """
+    手动申请经管理员审批后执行巡查。
+    返回 (result, None) 成功，或 (None, error_message)。
+    """
+    current_round = _get_current_round()
+    return _run_platform_patrol_core(
+        application.平台编号,
+        application.平台名称,
+        application.巡查比例,
+        application.起始轮次,
+        application.终止轮次,
+        current_round,
+        application=application,
+        patrol_kind='manual',
+        regulation_action=None,
+        rng_seed=int(application.pk),
+    )
+
+
+def _run_regulation_auto_patrol_pair(ra: RegulationAction, exec_round: int):
+    """
+    专项整治结束后配套两次自动巡查：整治前一轮快照、整治结束轮次快照。
+    两次均成功则标记 ra.配套自动巡查已执行。
+    """
+    ratio = _get_admin_auto_patrol_ratio()
+    pid = ra.整治平台编号
+    pname = ra.整治平台名称
+    pre_r = max(1, int(ra.开始轮次) - 1)
+    end_r = int(ra.结束轮次)
+
+    r1, e1 = _run_platform_patrol_core(
+        pid,
+        pname,
+        ratio,
+        pre_r,
+        pre_r,
+        exec_round,
+        application=None,
+        patrol_kind='auto',
+        regulation_action=ra,
+        rng_seed=ra.pk * 1000 + 1,
+    )
+    if e1:
+        system_action_log(
+            f"系统专项整治配套自动巡查失败 第1次 行动编号={ra.行动编号} 平台={pname} err={e1}"
+        )
+    else:
+        system_action_log(
+            f"系统完成专项整治配套自动巡查第1次 已写入监管机构平台巡查表 result_id={r1.pk} "
+            f"行动编号={ra.行动编号} 平台={pname} 区间=第{pre_r}轮 执行轮次={exec_round}"
+        )
+
+    r2, e2 = _run_platform_patrol_core(
+        pid,
+        pname,
+        ratio,
+        end_r,
+        end_r,
+        exec_round,
+        application=None,
+        patrol_kind='auto',
+        regulation_action=ra,
+        rng_seed=ra.pk * 1000 + 2,
+    )
+    if e2:
+        system_action_log(
+            f"系统专项整治配套自动巡查失败 第2次 行动编号={ra.行动编号} 平台={pname} err={e2}"
+        )
+    else:
+        system_action_log(
+            f"系统完成专项整治配套自动巡查第2次 已写入监管机构平台巡查表 result_id={r2.pk} "
+            f"行动编号={ra.行动编号} 平台={pname} 区间=第{end_r}轮 执行轮次={exec_round}"
+        )
+
+    if not e1 and not e2:
+        RegulationAction.objects.filter(pk=ra.pk, 配套自动巡查已执行=False).update(配套自动巡查已执行=True)
+
+
+def _run_regulation_auto_patrols_for_round_transition(round_just_settled: int, new_round: int):
+    """
+    结束本轮结算且模拟轮次已从 round_just_settled 推进到 new_round 后调用。
+    若某专项行动的结束轮次恰为 round_just_settled，则当前轮次 new_round == 结束轮次+1，触发配套自动巡查。
+    """
+    _sync_regulation_actions_finished(new_round)
+    for ra in RegulationAction.objects.filter(
+        结束轮次=round_just_settled,
+        配套自动巡查已执行=False,
+    ):
+        _run_regulation_auto_patrol_pair(ra, new_round)
 
 
 def _get_effective_health_rule(platform_id: int, round_num: int):
@@ -2472,6 +2590,7 @@ def end_round(request):
 
     SimulationRound.objects.filter(pk=1).update(当前轮次=F('当前轮次') + 1)
     new_round = _get_current_round()
+    _run_regulation_auto_patrols_for_round_transition(round_to_settle, new_round)
     action_log(
         f"结束本轮 round={round_to_settle} -> {new_round} | 已文章收益结算={settled} "
         f"| 周期利润结算={settled_cycle_profit}"

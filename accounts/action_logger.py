@@ -44,6 +44,18 @@ def _admin_log_path():
     return os.path.join(log_dir, 'admin_actions.log')
 
 
+def _system_log_path():
+    """系统行为日志：项目根目录下的 logs/system_actions.log。"""
+    try:
+        from django.conf import settings
+        base = settings.BASE_DIR
+    except Exception:
+        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    log_dir = os.path.join(base, 'logs')
+    os.makedirs(log_dir, exist_ok=True)
+    return os.path.join(log_dir, 'system_actions.log')
+
+
 def action_log(message):
     """
     记录一条操作日志：打印到终端，并追加写入 logs/simulation_actions.log。
@@ -88,3 +100,18 @@ def admin_action_log(message):
             f.write(line + '\n')
     except Exception as e:
         print(f"[admin_action_log] 写入文件失败: {e}", file=sys.stderr, flush=True)
+
+
+def system_action_log(message):
+    """
+    记录一条系统行为日志：打印到终端，并追加写入 logs/system_actions.log。
+    """
+    ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    line = f"[{ts}] {message}"
+    print(line, flush=True)
+    try:
+        path = _system_log_path()
+        with open(path, 'a', encoding='utf-8') as f:
+            f.write(line + '\n')
+    except Exception as e:
+        print(f"[system_action_log] 写入文件失败: {e}", file=sys.stderr, flush=True)

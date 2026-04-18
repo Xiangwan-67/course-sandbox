@@ -118,6 +118,8 @@ class RegulationAction(models.Model):
         blank=True,
         related_name='正式行动列表',
     )
+    # 专项整治结束后系统自动跑两次配套巡查并写入「监管机构平台巡查表」后置为 True
+    配套自动巡查已执行 = models.BooleanField(default=False)
     创建时间 = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -176,13 +178,28 @@ class PlatformPatrolApplication(models.Model):
 
 
 class PlatformPatrolResult(models.Model):
-    """监管机构平台巡查执行结果（管理员审核通过后生成）。"""
+    """监管机构平台巡查执行结果（手动申请经审批，或专项整治结束自动触发）。"""
+
+    PATROL_KIND_CHOICES = [
+        ('manual', '手动'),
+        ('auto', '自动'),
+    ]
 
     申请记录 = models.OneToOneField(
         PlatformPatrolApplication,
         on_delete=models.CASCADE,
         related_name='巡查结果',
+        null=True,
+        blank=True,
     )
+    专项行动 = models.ForeignKey(
+        RegulationAction,
+        on_delete=models.CASCADE,
+        related_name='配套巡查结果',
+        null=True,
+        blank=True,
+    )
+    巡查类型 = models.CharField(max_length=16, choices=PATROL_KIND_CHOICES, default='manual')
     平台编号 = models.IntegerField()
     平台名称 = models.CharField(max_length=64)
     巡查比例 = models.DecimalField(max_digits=5, decimal_places=4)
@@ -201,6 +218,18 @@ class PlatformPatrolResult(models.Model):
         verbose_name = '监管机构平台巡查表'
         verbose_name_plural = '监管机构平台巡查表'
         ordering = ['-创建时间', '-id']
+
+
+class AdminBaseConfig(models.Model):
+    """管理员基础配置（单行，id=1）：自动巡查比例等。"""
+
+    自动巡查比例 = models.DecimalField(max_digits=5, decimal_places=4, default=Decimal('0.5'))
+    更新时间 = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = '管理员基础配置表'
+        verbose_name = '管理员基础配置'
+        verbose_name_plural = '管理员基础配置'
 
 
 class ProfitWeightConfig(models.Model):

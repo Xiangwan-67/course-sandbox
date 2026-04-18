@@ -14,7 +14,14 @@ class Command(BaseCommand):
     help = '结算本轮文章收益；周期末结算周期利润；然后将当前模拟轮次+1'
 
     def handle(self, *args, **options):
-        from accounts.views import _get_current_round, _recover_writer_health_for_platform, _settle_article_revenue, _settle_cycle_profit, _get_effective_profit_config
+        from accounts.views import (
+            _get_current_round,
+            _recover_writer_health_for_platform,
+            _settle_article_revenue,
+            _settle_cycle_profit,
+            _get_effective_profit_config,
+            _run_regulation_auto_patrols_for_round_transition,
+        )
         from accounts.models import ProfitWeightConfig
 
         SimulationRound.objects.get_or_create(pk=1, defaults={'当前轮次': 1})
@@ -36,6 +43,7 @@ class Command(BaseCommand):
             settled.append({'platform_id': pid})
         SimulationRound.objects.filter(pk=1).update(当前轮次=F('当前轮次') + 1)
         new_round = SimulationRound.objects.get(pk=1).当前轮次
+        _run_regulation_auto_patrols_for_round_transition(round_to_settle, new_round)
         action_log(
             f"结束本轮(管理命令) round={round_to_settle} -> {new_round} | 已文章收益结算={settled} "
             f"| 周期利润结算={settled_cycle_profit}"

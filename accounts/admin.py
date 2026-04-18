@@ -2,7 +2,7 @@ from django.contrib import admin
 from .models import (
     WriterAccount, UserAccount, PlatformAccount, RegulatorAccount,
     RegulationActionApplication, RegulationAction, PlatformSpotCheckResult,
-    PlatformPatrolApplication, PlatformPatrolResult,
+    PlatformPatrolApplication, PlatformPatrolResult, AdminBaseConfig,
     ProfitWeightConfig, PlatformCycleProfitRecord,
     PlatformGovernanceMeasure, PlatformPerformanceScheme,
     AccountHealthConfig, AccountHealthLevelConfig, WriterNoticeRead, WriterHealthScoreLog,
@@ -34,6 +34,14 @@ class PlatformAccountAdmin(admin.ModelAdmin):
 @admin.register(RegulatorAccount)
 class RegulatorAccountAdmin(admin.ModelAdmin):
     list_display = ['id', '账号', '密码']
+
+
+@admin.register(AdminBaseConfig)
+class AdminBaseConfigAdmin(admin.ModelAdmin):
+    list_display = ['id', '自动巡查比例', '更新时间']
+
+    def has_add_permission(self, request):
+        return not AdminBaseConfig.objects.exists()
 
 
 @admin.register(RegulationActionApplication)
@@ -117,9 +125,10 @@ class RegulationActionApplicationAdmin(admin.ModelAdmin):
 class RegulationActionAdmin(admin.ModelAdmin):
     list_display = [
         'id', '行动编号', '当前轮次', '整治平台编号', '整治平台名称',
-        '整治持续轮次', '开始轮次', '结束轮次', '整治原因', '状态', '创建时间',
+        '整治持续轮次', '开始轮次', '结束轮次', '整治原因', '状态',
+        '配套自动巡查已执行', '创建时间',
     ]
-    list_filter = ['状态', '整治平台编号', '当前轮次', '整治原因']
+    list_filter = ['状态', '整治平台编号', '当前轮次', '整治原因', '配套自动巡查已执行']
 
 
 @admin.register(PlatformSpotCheckResult)
@@ -185,10 +194,10 @@ class PlatformPatrolApplicationAdmin(admin.ModelAdmin):
 @admin.register(PlatformPatrolResult)
 class PlatformPatrolResultAdmin(admin.ModelAdmin):
     list_display = [
-        'id', '申请记录', '平台编号', '平台名称', '巡查比例',
+        'id', '巡查类型', '申请记录', '专项行动', '平台编号', '平台名称', '巡查比例',
         '起始轮次', '终止轮次', '执行轮次', '用户数', '抽查文章数', '标题党率', '创建时间',
     ]
-    list_filter = ['平台编号']
+    list_filter = ['平台编号', '巡查类型']
 
 
 @admin.register(ProfitWeightConfig)
