@@ -53,6 +53,80 @@ class PlatformAccount(models.Model):
         verbose_name_plural = '平台账号'
 
 
+class RegulatorAccount(models.Model):
+    """监管机构账号：用于登录监管端页面。"""
+    账号 = models.CharField(max_length=64, unique=True)
+    密码 = models.CharField(max_length=128)
+
+    class Meta:
+        db_table = '监管机构账号'
+        verbose_name = '监管机构账号'
+        verbose_name_plural = '监管机构账号'
+
+
+class RegulationActionApplication(models.Model):
+    """监管专项行动申请记录（一次申请一条）。"""
+
+    STATUS_CHOICES = [
+        ('pending', '待审核'),
+        ('approved', '已通过'),
+        ('rejected', '已驳回'),
+    ]
+
+    行动编号 = models.CharField(max_length=32, unique=True)
+    当前轮次 = models.PositiveIntegerField()
+    整治平台编号列表 = models.JSONField(default=list, blank=True)
+    整治平台名称列表 = models.JSONField(default=list, blank=True)
+    整治持续轮次 = models.PositiveIntegerField(default=8)
+    整治原因 = models.CharField(max_length=64)
+    其他原因说明 = models.TextField(blank=True)
+    申请状态 = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    申请人账号 = models.CharField(max_length=64, blank=True)
+    管理员确认账号 = models.CharField(max_length=100, blank=True)
+    管理员确认时间 = models.DateTimeField(null=True, blank=True)
+    创建时间 = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = '监管专项行动申请表'
+        verbose_name = '监管专项行动申请表'
+        verbose_name_plural = '监管专项行动申请表'
+        ordering = ['-创建时间', '-id']
+
+
+class RegulationAction(models.Model):
+    """监管专项行动正式记录（每平台一条）。"""
+
+    STATUS_CHOICES = [
+        ('active', '整治中'),
+        ('finished', '已完成'),
+    ]
+
+    行动编号 = models.CharField(max_length=32)
+    当前轮次 = models.PositiveIntegerField()
+    整治平台编号 = models.IntegerField()
+    整治平台名称 = models.CharField(max_length=64)
+    整治持续轮次 = models.PositiveIntegerField(default=8)
+    开始轮次 = models.PositiveIntegerField()
+    结束轮次 = models.PositiveIntegerField()
+    整治原因 = models.CharField(max_length=64)
+    其他原因说明 = models.TextField(blank=True)
+    状态 = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
+    申请记录 = models.ForeignKey(
+        RegulationActionApplication,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='正式行动列表',
+    )
+    创建时间 = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = '监管专项行动表'
+        verbose_name = '监管专项行动表'
+        verbose_name_plural = '监管专项行动表'
+        ordering = ['-创建时间', '-id']
+
+
 class ProfitWeightConfig(models.Model):
     """平台利润计算：因子权重配置（管理员维护，按平台独立配置）。"""
 

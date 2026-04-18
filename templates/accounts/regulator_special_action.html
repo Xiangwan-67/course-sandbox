@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>监管机构 - 发起专项整治</title>
+</head>
+<body>
+  <h2>监管机构（{{ name }}）- 发起专项整治</h2>
+  <p>当前轮次：{{ current_round }}</p>
+
+  <div style="margin-top: 16px; padding: 12px; border: 1px solid #ddd;">
+    <strong>发起专项整治</strong>
+    <div style="margin-top: 10px;">
+      <div><strong>整治平台</strong></div>
+      <label style="display:block; margin-top: 6px;">
+        <input type="checkbox" id="select-all-platforms" />
+        全选（仅选中可选平台）
+      </label>
+      {% for p in platform_items %}
+        <label style="display:block; margin-top: 6px; color: {% if p.disabled %}#999{% else %}#000{% endif %};">
+          <input
+            type="checkbox"
+            class="platform-option"
+            value="{{ p.id }}"
+            {% if p.disabled %}disabled{% endif %}
+          />
+          {{ p.name }}（{{ p.status_text }}）
+        </label>
+      {% endfor %}
+    </div>
+
+    <div style="margin-top: 12px;">
+      <label>
+        整治持续轮次：
+        <select id="duration-rounds">
+          {% for d in duration_options %}
+            <option value="{{ d }}" {% if d == 8 %}selected{% endif %}>{{ d }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+
+    <div style="margin-top: 12px;">
+      <label>
+        整治原因：
+        <select id="reason-select">
+          <option value="">请选择</option>
+          {% for reason in reason_options %}
+            <option value="{{ reason }}">{{ reason }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+
+    <div style="margin-top: 12px;" id="reason-other-wrap" hidden>
+      <label>
+        其他原因说明：
+        <input type="text" id="reason-other-input" maxlength="200" style="width: 420px;" />
+      </label>
+    </div>
+
+    <div style="margin-top: 14px;">
+      <button id="submit-action-btn">确认发起（提交管理员审核）</button>
+    </div>
+  </div>
+
+  <div style="margin-top: 16px; padding: 12px; border: 1px solid #ddd;">
+    <strong>最近专项整治申请</strong>
+    {% if latest_applications and latest_applications|length > 0 %}
+      {% for app in latest_applications %}
+        <div style="padding: 8px; border: 1px solid #eee; margin-top: 8px;">
+          <div>
+            <strong>行动编号：</strong>{{ app.行动编号 }}
+            | <strong>状态：</strong>{{ app.get_申请状态_display }}
+          </div>
+          <div style="margin-top: 4px;">
+            <strong>平台：</strong>{{ app.整治平台名称列表|join:"、" }}
+            | <strong>轮次：</strong>{{ app.当前轮次 }}
+            | <strong>持续：</strong>{{ app.整治持续轮次 }}
+          </div>
+          <div style="margin-top: 4px;">
+            <strong>原因：</strong>{{ app.整治原因 }}
+            {% if app.其他原因说明 %}（{{ app.其他原因说明 }}）{% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <div style="margin-top: 8px;">暂无申请记录。</div>
+    {% endif %}
+  </div>
+
+  <p style="margin-top: 20px;">
+    <a href="{% url 'accounts:logout' %}">退出登录</a>
+  </p>
+
+  <script>
+    function getCookie(name) {
+      const value = `; ${document.cookie}`;
+      const parts = value.split(`; ${name}=`);
+      if (parts.length === 2) return parts.pop().split(';').shift();
+      return '';
+    }
+
+    function getSelectedPlatformIds() {
+      const selected = [];
+      document.querySelectorAll('.platform-option').forEach((el) => {
+        if (el.checked && !el.disabled) {
+          selected.push(Number(el.value));
+        }
+      });
+      return selected;
+    }
+
+    function syncSelectAll() {
+      const selectable = Array.from(document.querySelectorAll('.platform-option')).filter((el) => !el.disabled);
+      const selected = selectable.filter((el) => el.checked);
+      const allChecked = selectable.length > 0 && selected.length === selectable.length;
+      document.getElementById('select-all-platforms').checked = allChecked;
+    }
+
+    document.getElementById('select-all-platforms').addEventListener('change', (e) => {
+      const checked = Boolean(e.target.checked);
+      document.querySelectorAll('.platform-option').forEach((el) => {
+        if (!el.disabled) {
+          el.checked = checked;
+        }
+      });
+    });
+
+    document.querySelectorAll('.platform-option').forEach((el) => {
+      el.addEventListener('change', syncSelectAll);
+    });
+
+    document.getElementById('reason-select').addEventListener('change', (e) => {
+      const wrap = document.getElementById('reason-other-wrap');
+      wrap.hidden = e.target.value !== '其他';
+    });
+
+    document.getElementById('submit-action-btn').addEventListener('click', async () => {
+      const platformIds = getSelectedPlatformIds();
+      const durationRounds = Number(document.getElementById('duration-rounds').value || 8);
+      const reason = document.getElementById('reason-select').value || '';
+      const reasonOther = (document.getElementById('reason-other-input').value || '').trim();
+
+      if (!platformIds.length) {
+        alert('请至少选择一个整治平台');
+        return;
+      }
+      if (!reason) {
+        alert('请选择整治原因');
+        return;
+      }
+      if (reason === '其他' && !reasonOther) {
+        alert('请选择“其他”时请填写原因说明');
+        return;
+      }
+
+      const csrftoken = getCookie('csrftoken');
+      const res = await fetch("{% url 'accounts:regulator_special_action_submit' %}", {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': csrftoken
+        },
+        body: JSON.stringify({
+          platform_ids: platformIds,
+          duration_rounds: durationRounds,
+          reason: reason,
+          reason_other: reasonOther
+        })
+      });
+
+      let data = {};
+      try {
+        data = await res.json();
+      } catch (err) {
+        data = { error: '响应解析失败' };
+      }
+      if (!res.ok) {
+        alert(data.error || '提交失败');
+        return;
+      }
+      const range = data.active_round_range || {};
+      alert(
+        `已提交管理员审核。\n行动编号：${data.action_id}\n生效轮次区间：${range.start_round || '-'}-${range.end_round || '-'}`
+      );
+      window.location.reload();
+    });
+  </script>
+</body>
+</html>

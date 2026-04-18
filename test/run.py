@@ -55,6 +55,10 @@ CASE_DISPLAY_MAP = {
     "test_platform_performance_apply_deprecated_returns_410": "旧绩效方案应用接口已废弃并返回410",
     "test_platform_performance_page_shows_active_and_pending_scheme": "绩效方案页可同时回显生效方案与待审核方案",
     "test_end_round_uses_active_performance_weights_and_records_settlement": "轮次结算按生效绩效权重计算收益并写入结算明细",
+    "test_regulator_submit_application_success": "监管机构发起专项整治申请，系统写入待审核记录并记录日志",
+    "test_regulator_submit_blocked_when_platform_under_regulation": "整治中平台重复发起被拦截",
+    "test_admin_approve_application_creates_formal_records": "管理员通过申请后按平台拆分写入正式整治记录",
+    "test_admin_reject_application_no_formal_record": "管理员驳回申请后不生成正式整治记录",
 }
 
 

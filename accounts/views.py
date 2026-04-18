@@ -10,10 +10,12 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 import json, time
 import threading
 from django.conf import settings
-from accounts.action_logger import action_log
+from accounts.action_logger import action_log, regulator_action_log
 from accounts.db_retry import retry_on_db_locked
 from accounts.models import (
-    WriterAccount, UserAccount, PlatformAccount, ProfitWeightConfig, PlatformCycleProfitRecord, PlatformGovernanceMeasure, PlatformPerformanceScheme, Article, Comment, PlatformSwitchSurvey,
+    WriterAccount, UserAccount, PlatformAccount, RegulatorAccount,
+    RegulationActionApplication, RegulationAction,
+    ProfitWeightConfig, PlatformCycleProfitRecord, PlatformGovernanceMeasure, PlatformPerformanceScheme, Article, Comment, PlatformSwitchSurvey,
     UserFollowWriter, UnfollowSurvey, ArticlePush, ArticlePushDetail,
     UserArticleLike, UserArticleCollect, UserArticleReadComplete,
     SimulationRound,
@@ -95,6 +97,17 @@ def login_view(request):
             return redirect('accounts:platform_home')
         return render(request, 'accounts/login.html', {'error': '密码错误。'})
     except PlatformAccount.DoesNotExist:
+        pass
+
+    # 再查监管机构账号表
+    try:
+        regulator_user = RegulatorAccount.objects.get(**{'账号': account})
+        if regulator_user.密码 == password:
+            request.session['account'] = account
+            request.session['role'] = 'regulator'
+            return redirect('accounts:regulator_special_action')
+        return render(request, 'accounts/login.html', {'error': '密码错误。'})
+    except RegulatorAccount.DoesNotExist:
         pass
 
     return render(request, 'accounts/login.html', {'error': '账号不存在。'})
@@ -578,6 +591,139 @@ def platform_round_result(request):
         'target_round': target_round,
         'stats': stats,
         'config_review': config_review,
+    })
+
+
+@ensure_csrf_cookie
+def regulator_special_action(request):
+    """监管机构发起专项整治页面。"""
+    account = request.session.get('account', '')
+    if not account or request.session.get('role') != 'regulator':
+        return redirect('accounts:login')
+
+    current_round = _get_current_round()
+    platform_items = []
+    for item in _all_platform_choices():
+        is_active = _is_platform_under_regulation(item['id'], current_round)
+        platform_items.append({
+            'id': item['id'],
+            'name': item['name'],
+            'disabled': is_active,
+            'status_text': '整治中' if is_active else '可选',
+        })
+
+    latest_applications = list(
+        RegulationActionApplication.objects.order_by('-创建时间', '-id')[:20]
+    )
+    return render(request, 'accounts/regulator_special_action.html', {
+        'name': account,
+        'current_round': current_round,
+        'platform_items': platform_items,
+        'duration_options': [4, 8, 12],
+        'reason_options': ['定期整治', '标题党率过高', '用户投诉激增', '其他'],
+        'latest_applications': latest_applications,
+    })
+
+
+@require_http_methods(['POST'])
+def regulator_special_action_submit(request):
+    """监管机构提交专项整治申请（待管理员审核）。"""
+    account = request.session.get('account', '')
+    if not account or request.session.get('role') != 'regulator':
+        return JsonResponse({'error': '未登录或非监管机构角色'}, status=403)
+
+    payload = {}
+    if request.content_type and 'application/json' in request.content_type:
+        try:
+            payload = json.loads((request.body or b'').decode('utf-8') or '{}')
+        except Exception:
+            payload = {}
+    else:
+        raw_ids = request.POST.getlist('platform_ids') or request.POST.get('platform_ids') or '[]'
+        if isinstance(raw_ids, str):
+            try:
+                parsed = json.loads(raw_ids)
+                if not isinstance(parsed, list):
+                    parsed = [raw_ids]
+            except Exception:
+                parsed = [x for x in raw_ids.split(',') if x.strip()]
+        else:
+            parsed = raw_ids
+        payload = {
+            'platform_ids': parsed,
+            'duration_rounds': request.POST.get('duration_rounds'),
+            'reason': request.POST.get('reason'),
+            'reason_other': request.POST.get('reason_other'),
+        }
+
+    try:
+        selected_platform_ids = sorted({int(x) for x in (payload.get('platform_ids') or [])})
+    except Exception:
+        selected_platform_ids = []
+    if not selected_platform_ids:
+        return JsonResponse({'error': '请至少选择一个整治平台'}, status=400)
+
+    valid_platform_ids = {item['id'] for item in _all_platform_choices()}
+    if any(pid not in valid_platform_ids for pid in selected_platform_ids):
+        return JsonResponse({'error': '整治平台编号非法'}, status=400)
+
+    try:
+        duration_rounds = int(payload.get('duration_rounds') or 8)
+    except (TypeError, ValueError):
+        duration_rounds = 8
+    if duration_rounds not in (4, 8, 12):
+        return JsonResponse({'error': '整治持续轮次仅支持 4/8/12'}, status=400)
+
+    reason = (payload.get('reason') or '').strip()
+    valid_reasons = {'定期整治', '标题党率过高', '用户投诉激增', '其他'}
+    if reason not in valid_reasons:
+        return JsonResponse({'error': '整治原因非法'}, status=400)
+    reason_other = (payload.get('reason_other') or '').strip()
+    if reason == '其他' and not reason_other:
+        return JsonResponse({'error': '选择“其他”时请填写原因说明'}, status=400)
+
+    current_round = _get_current_round()
+    blocked_platforms = []
+    for pid in selected_platform_ids:
+        if _is_platform_under_regulation(pid, current_round):
+            blocked_platforms.append(_platform_name(pid))
+    if blocked_platforms:
+        return JsonResponse(
+            {'error': f"以下平台处于整治中，不能重复发起：{', '.join(blocked_platforms)}"},
+            status=400,
+        )
+
+    action_id = _next_regulation_action_id()
+    platform_names = [_platform_name(pid) for pid in selected_platform_ids]
+    app = RegulationActionApplication.objects.create(
+        行动编号=action_id,
+        当前轮次=current_round,
+        整治平台编号列表=selected_platform_ids,
+        整治平台名称列表=platform_names,
+        整治持续轮次=duration_rounds,
+        整治原因=reason,
+        其他原因说明=reason_other,
+        申请状态='pending',
+        申请人账号=account,
+    )
+
+    start_round = current_round + 1
+    end_round = start_round + duration_rounds - 1
+    regulator_action_log(
+        f"监管机构确认发起专项整治 action_id={action_id} round={current_round} "
+        f"platforms={platform_names} active_range={start_round}-{end_round} "
+        f"reason={reason} reason_other={reason_other or '-'} operator={account} app_id={app.pk}"
+    )
+    action_log(
+        f"监管机构提交专项整治申请 action_id={action_id} round={current_round} "
+        f"platforms={platform_names} duration={duration_rounds} reason={reason} operator={account}"
+    )
+    return JsonResponse({
+        'ok': True,
+        'application_id': app.pk,
+        'action_id': action_id,
+        'status': app.申请状态,
+        'active_round_range': {'start_round': start_round, 'end_round': end_round},
     })
 
 
@@ -1117,6 +1263,42 @@ def _get_current_round():
     """获取当前模拟轮次（从表「模拟轮次」读取，无行则创建 id=1 且 当前轮次=1）。"""
     obj, _ = SimulationRound.objects.get_or_create(pk=1, defaults={'当前轮次': 1})
     return obj.当前轮次
+
+
+def _platform_name(platform_id: int) -> str:
+    return PLATFORM_NAMES.get(platform_id, f'平台{platform_id + 1}')
+
+
+def _all_platform_choices():
+    """当前系统内可供整治的平台列表。"""
+    return [{'id': 0, 'name': _platform_name(0)}, {'id': 1, 'name': _platform_name(1)}]
+
+
+def _is_platform_under_regulation(platform_id: int, current_round: int) -> bool:
+    """某平台在当前轮次是否处于专项整治中。"""
+    RegulationAction.objects.filter(
+        整治平台编号=platform_id,
+        结束轮次__lt=current_round,
+        状态='active',
+    ).update(状态='finished')
+    return RegulationAction.objects.filter(
+        整治平台编号=platform_id,
+        开始轮次__lte=current_round,
+        结束轮次__gte=current_round,
+        状态='active',
+    ).exists()
+
+
+def _next_regulation_action_id() -> str:
+    """生成监管专项行动编号，格式 0001 递增。"""
+    last_app = RegulationActionApplication.objects.order_by('-id').first()
+    if not last_app:
+        return '0001'
+    try:
+        next_value = int(str(last_app.行动编号).strip()) + 1
+    except Exception:
+        next_value = int(last_app.pk) + 1
+    return f"{next_value:04d}"
 
 
 def _get_effective_profit_config(round_num: int, platform_id: int = None):

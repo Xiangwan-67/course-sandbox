@@ -1,6 +1,8 @@
 from django.contrib import admin
 from .models import (
-    WriterAccount, UserAccount, PlatformAccount, ProfitWeightConfig, PlatformCycleProfitRecord,
+    WriterAccount, UserAccount, PlatformAccount, RegulatorAccount,
+    RegulationActionApplication, RegulationAction,
+    ProfitWeightConfig, PlatformCycleProfitRecord,
     PlatformGovernanceMeasure, PlatformPerformanceScheme,
     AccountHealthConfig, AccountHealthLevelConfig, WriterNoticeRead, WriterHealthScoreLog,
     Article, Comment, PlatformSwitchSurvey,
@@ -26,6 +28,90 @@ class UserAccountAdmin(admin.ModelAdmin):
 @admin.register(PlatformAccount)
 class PlatformAccountAdmin(admin.ModelAdmin):
     list_display = ['id', '账号', '密码', '所属平台']
+
+
+@admin.register(RegulatorAccount)
+class RegulatorAccountAdmin(admin.ModelAdmin):
+    list_display = ['id', '账号', '密码']
+
+
+@admin.register(RegulationActionApplication)
+class RegulationActionApplicationAdmin(admin.ModelAdmin):
+    list_display = [
+        'id', '行动编号', '当前轮次', '整治持续轮次',
+        '整治原因', '申请状态', '申请人账号', '管理员确认账号', '管理员确认时间', '创建时间',
+    ]
+    list_filter = ['申请状态', '当前轮次', '整治持续轮次', '整治原因']
+    actions = ['approve_applications', 'reject_applications']
+
+    @admin.action(description='审核通过：生成正式专项行动')
+    def approve_applications(self, request, queryset):
+        from django.utils import timezone
+        from accounts.action_logger import regulator_action_log
+
+        admin_account = getattr(request.user, 'username', str(request.user))
+        now = timezone.now()
+
+        for app in queryset.filter(申请状态='pending'):
+            platform_ids = [int(pid) for pid in (app.整治平台编号列表 or [])]
+            platform_names = list(app.整治平台名称列表 or [])
+            start_round = int(app.当前轮次) + 1
+            duration = int(app.整治持续轮次 or 8)
+            end_round = start_round + duration - 1
+
+            app.申请状态 = 'approved'
+            app.管理员确认账号 = admin_account
+            app.管理员确认时间 = now
+            app.save(update_fields=['申请状态', '管理员确认账号', '管理员确认时间'])
+
+            for idx, pid in enumerate(platform_ids):
+                pname = platform_names[idx] if idx < len(platform_names) else f'平台{pid + 1}'
+                RegulationAction.objects.create(
+                    行动编号=app.行动编号,
+                    当前轮次=app.当前轮次,
+                    整治平台编号=pid,
+                    整治平台名称=pname,
+                    整治持续轮次=duration,
+                    开始轮次=start_round,
+                    结束轮次=end_round,
+                    整治原因=app.整治原因,
+                    其他原因说明=app.其他原因说明,
+                    状态='active',
+                    申请记录=app,
+                )
+
+            regulator_action_log(
+                f"管理员审核通过监管专项整治 action_id={app.行动编号} "
+                f"platforms={platform_names} round={app.当前轮次} "
+                f"active_range={start_round}-{end_round} admin={admin_account}"
+            )
+
+    @admin.action(description='驳回：专项行动申请不通过')
+    def reject_applications(self, request, queryset):
+        from django.utils import timezone
+        from accounts.action_logger import regulator_action_log
+
+        admin_account = getattr(request.user, 'username', str(request.user))
+        now = timezone.now()
+
+        for app in queryset.filter(申请状态='pending'):
+            app.申请状态 = 'rejected'
+            app.管理员确认账号 = admin_account
+            app.管理员确认时间 = now
+            app.save(update_fields=['申请状态', '管理员确认账号', '管理员确认时间'])
+            regulator_action_log(
+                f"管理员驳回监管专项整治申请 action_id={app.行动编号} "
+                f"platforms={app.整治平台名称列表 or []} round={app.当前轮次} admin={admin_account}"
+            )
+
+
+@admin.register(RegulationAction)
+class RegulationActionAdmin(admin.ModelAdmin):
+    list_display = [
+        'id', '行动编号', '当前轮次', '整治平台编号', '整治平台名称',
+        '整治持续轮次', '开始轮次', '结束轮次', '整治原因', '状态', '创建时间',
+    ]
+    list_filter = ['状态', '整治平台编号', '当前轮次', '整治原因']
 
 
 @admin.register(ProfitWeightConfig)
