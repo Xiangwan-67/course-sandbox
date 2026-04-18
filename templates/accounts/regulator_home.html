@@ -92,6 +92,20 @@
     .fine-modal-box h3 { margin-top: 0; }
     .fine-modal-actions { margin-top: 16px; text-align: right; }
     .fine-modal-actions button { margin-left: 8px; padding: 6px 14px; }
+    .spot-check-wrap {
+      position: relative;
+      display: inline-block;
+    }
+    .spot-check-wrap .unread-dot {
+      position: absolute;
+      top: -5px;
+      right: -6px;
+      width: 9px;
+      height: 9px;
+      background: #e53935;
+      border-radius: 50%;
+      border: 1px solid #fff;
+    }
   </style>
 </head>
 <body>
@@ -235,10 +249,13 @@
             <td>第 {{ row.start_round }} 轮</td>
             <td>{{ row.progress }}</td>
             <td>
-              <form method="post" action="{% url 'accounts:platform_spot_check_open' row.spot_check_id %}" style="display:inline;">
-                {% csrf_token %}
-                <button type="submit">查看抽查结果</button>
-              </form>
+              <span class="spot-check-wrap">
+                <form method="post" action="{% url 'accounts:platform_spot_check_open' row.spot_check_id %}" style="display:inline;">
+                  {% csrf_token %}
+                  <button type="submit">查看抽查结果</button>
+                </form>
+                {% if row.spot_unread %}<span class="unread-dot" title="未读"></span>{% endif %}
+              </span>
             </td>
           </tr>
         {% empty %}

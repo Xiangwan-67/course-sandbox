@@ -656,6 +656,7 @@ def _regulator_progress_tables(current_round: int):
                 'start_round': start,
                 'progress': f'{total}/{total}轮',
                 'spot_check_id': spot.pk,
+                'spot_unread': not spot.是否查看,
             })
             continue
 
@@ -741,7 +742,7 @@ def regulator_platform_patrol(request):
 
 @require_http_methods(['POST'])
 def platform_spot_check_open(request, pk: int):
-    """监管用户打开抽查结果：更新是否查看、记日志，跳转占位页。"""
+    """监管用户点击「查看抽查结果」：校验后跳转详情页（已读与日志在 GET 详情页处理）。"""
     account = request.session.get('account', '')
     if not account or request.session.get('role') != 'regulator':
         return redirect('accounts:login')
@@ -750,31 +751,59 @@ def platform_spot_check_open(request, pk: int):
     if not spot:
         return redirect('accounts:regulator_home')
 
-    spot.是否查看 = True
-    spot.save(update_fields=['是否查看'])
-
-    current_round = _get_current_round()
-    regulator_action_log(
-        f"监管机构查看抽查结果 当前轮次：{current_round}，行动编号：{spot.行动编号}，平台：{spot.整治平台名称}"
-    )
     return redirect('accounts:platform_spot_check_detail', pk=pk)
 
 
 @ensure_csrf_cookie
 @require_http_methods(['GET'])
 def platform_spot_check_detail(request, pk: int):
-    """平台抽查结果页（占位，后续实现具体内容）。"""
+    """平台抽查结果页：纵向展示专项整治配套两次自动巡查（PlatformPatrolResult 巡查类型=自动）。"""
     account = request.session.get('account', '')
     if not account or request.session.get('role') != 'regulator':
         return redirect('accounts:login')
 
-    spot = PlatformSpotCheckResult.objects.filter(pk=pk).first()
+    spot = PlatformSpotCheckResult.objects.filter(pk=pk).select_related('专项行动').first()
     if not spot:
         return redirect('accounts:regulator_home')
+
+    ra = spot.专项行动
+    auto_patrols = list(
+        PlatformPatrolResult.objects.filter(专项行动=ra, 巡查类型='auto').order_by('id')
+    )
+
+    patrol_blocks = []
+    for idx, pr in enumerate(auto_patrols):
+        if idx == 0:
+            phase_title = '第一次巡查（整治前状态）'
+        elif idx == 1:
+            phase_title = '第二次巡查（整治结束当轮）'
+        else:
+            phase_title = f'第{idx + 1}次巡查'
+        r = int(pr.起始轮次)
+        rate_pct = float(pr.标题党率) * 100.0
+        patrol_blocks.append({
+            'phase_title': phase_title,
+            '抽查轮次': r,
+            '巡查比例': pr.巡查比例,
+            '用户数': pr.用户数,
+            '抽查文章数': pr.抽查文章数,
+            '标题党率_pct': rate_pct,
+            '执行轮次': pr.执行轮次,
+        })
+
+    if not spot.是否查看:
+        spot.是否查看 = True
+        spot.save(update_fields=['是否查看'])
+        current_round = _get_current_round()
+        regulator_action_log(
+            f"监管机构查看抽查结果 当前轮次：{current_round}，行动编号：{spot.行动编号}，平台：{spot.整治平台名称}"
+        )
 
     return render(request, 'accounts/platform_spot_check_detail.html', {
         'name': account,
         'spot': spot,
+        'regulation_action': ra,
+        'patrol_blocks': patrol_blocks,
     })
 
 

@@ -3,12 +3,61 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>平台抽查结果（占位）</title>
+  <title>平台抽查结果 - 专项整治配套巡查</title>
+  <style>
+    body { font-family: sans-serif; max-width: 640px; margin: 24px; line-height: 1.6; }
+    h2 { margin-bottom: 8px; }
+    .meta { color: #444; margin-bottom: 20px; }
+    .patrol-card {
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      padding: 16px 18px;
+      margin-bottom: 18px;
+      background: #fafafa;
+    }
+    .patrol-card h3 { margin: 0 0 12px; font-size: 1.05rem; }
+    .patrol-card dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; }
+    .patrol-card dt { color: #555; }
+    .patrol-card dd { margin: 0; }
+    .empty-hint { color: #666; padding: 12px; background: #f5f5f5; border-radius: 6px; }
+  </style>
 </head>
 <body>
   <p><a href="{% url 'accounts:regulator_home' %}">返回监管主页</a></p>
+
   <h2>平台抽查结果</h2>
-  <p>行动编号：{{ spot.行动编号 }}；平台：{{ spot.整治平台名称 }}</p>
-  <p style="color:#666;">抽查结果详情页面待后续实现。</p>
+  <p class="meta">
+    整治行动编号：<strong>{{ spot.行动编号 }}</strong>；
+    平台：<strong>{{ spot.整治平台名称 }}</strong>（编号 {{ spot.整治平台编号 }}）
+  </p>
+  <p class="meta">
+    专项整治区间：第 {{ regulation_action.开始轮次 }} 轮 — 第 {{ regulation_action.结束轮次 }} 轮
+  </p>
+
+  {% if patrol_blocks %}
+    {% for block in patrol_blocks %}
+      <section class="patrol-card">
+        <h3>{{ block.phase_title }}</h3>
+        <dl>
+          <dt>抽查轮次</dt>
+          <dd>第 {{ block.抽查轮次 }} 轮</dd>
+          <dt>巡查比例</dt>
+          <dd>{{ block.巡查比例 }}</dd>
+          <dt>执行轮次</dt>
+          <dd>第 {{ block.执行轮次 }} 轮</dd>
+          <dt>用户数</dt>
+          <dd>{{ block.用户数 }}</dd>
+          <dt>抽查文章数</dt>
+          <dd>{{ block.抽查文章数 }}</dd>
+          <dt>标题党率</dt>
+          <dd>{{ block.标题党率_pct|floatformat:2 }}%</dd>
+        </dl>
+      </section>
+    {% endfor %}
+  {% else %}
+    <p class="empty-hint">
+      暂无专项整治配套自动巡查结果（可能尚未执行「结束本轮」触发自动巡查，或配套巡查未成功落库）。
+    </p>
+  {% endif %}
 </body>
 </html>
