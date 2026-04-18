@@ -414,3 +414,34 @@ def test_traffic_penalty_round_result_matches_database(
     assert r.status_code == 200
     html = r.content.decode("utf-8", errors="replace")
     assert f"受到流量惩罚文章数：<strong>{db_count}</strong>" in html
+
+
+@pytest.mark.django_db
+def test_traffic_penalty_push_log_contains_required_fields(
+    platform_account,
+    enable_clickbait_measure,
+    writer_accounts,
+    action_log_path,
+):
+    from django.test import Client
+
+    current = _get_current_round()
+    _activate_traffic_penalty_measure(platform_id=platform_account.所属平台, round_num=current, alpha="0.35")
+
+    c = Client()
+    assert c.post("/", {"account": writer_accounts[0].账号, "password": writer_accounts[0].密码}).status_code in (200, 302)
+    aid = _publish_article(c, title_init=5, body_init=1)
+
+    traffic = ArticleTraffic.objects.filter(文章_id=aid).order_by("-id").first()
+    assert traffic is not None
+    assert traffic.penalty_applied is True
+
+    log_text = _read_log(action_log_path)
+    assert f"article_id={aid}" in log_text
+    assert "文章推送完成" in log_text
+    assert "base_ratio=" in log_text
+    assert "penalty_coeff=0.35" in log_text
+    assert "gamma=" in log_text
+    assert "final_ratio=" in log_text
+    assert "discover_chosen=" in log_text
+    assert "total_pushed=" in log_text

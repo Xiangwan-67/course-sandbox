@@ -22,20 +22,45 @@ CASE_DISPLAY_MAP = {
     "test_traffic_penalty_publish_next_round_effective": "平台负责人发布后下一轮生效，写手标题党文章命中惩罚",
     "test_traffic_penalty_not_applied_for_non_clickbait": "写手发布非标题党文章，不应触发流量惩罚",
     "test_traffic_penalty_cancel_next_round_disabled": "平台负责人取消流量惩罚后下一轮失效",
-    "test_traffic_penalty_alpha_boundaries[0.00-0.0000-0]": "alpha=0 边界：标题党文章发现流量降至最低边界",
-    "test_traffic_penalty_alpha_boundaries[1.00-1.0000-None]": "alpha=1 边界：标题党文章不额外降权",
+    "test_traffic_penalty_alpha_boundaries[0.00-expected_penalty0-0]": "alpha=0 边界：标题党文章发现流量降至最低边界",
+    "test_traffic_penalty_alpha_boundaries[1.00-expected_penalty1-None]": "alpha=1 边界：标题党文章不额外降权",
     "test_traffic_penalty_invalid_alpha_and_permission": "非法参数与权限异常：默认值兜底且无权访问被拒绝",
     "test_traffic_penalty_with_health_rule_records_gamma": "流量惩罚与健康分联动：gamma 与惩罚记录一致",
     "test_traffic_penalty_round_result_matches_database": "平台查看治理结果页：受流量惩罚文章数与数据库一致",
+    "test_revenue_penalty_config_page_and_save_success": "平台负责人提交收益惩罚配置，系统保存待审核配置",
+    "test_revenue_penalty_save_duplicate_rejected": "平台负责人重复提交收益惩罚配置被拦截",
+    "test_revenue_penalty_publish_requires_approved_config": "平台负责人未有可用收益惩罚配置时提交发布被拒绝",
+    "test_revenue_penalty_publish_next_round_effective": "平台负责人发布收益惩罚后下一轮生效，标题党文章命中收益惩罚",
+    "test_revenue_penalty_not_applied_for_non_clickbait": "非标题党文章结算时不应触发收益惩罚",
+    "test_revenue_penalty_cancel_next_round_disabled": "平台负责人取消收益惩罚后下一轮失效",
+    "test_revenue_penalty_beta_zero_boundary": "beta=0 边界：标题党文章最终收益归零",
+    "test_revenue_penalty_beta_one_boundary": "beta=1 边界：标题党文章不额外扣减收益",
+    "test_revenue_penalty_invalid_beta_and_permission": "收益惩罚非法参数与权限异常：默认值兜底且无权访问被拒绝",
+    "test_revenue_penalty_round_result_matches_database": "平台查看治理结果页：受收益惩罚文章数与数据库一致",
+    "test_revenue_penalty_settlement_log_contains_required_fields": "收益结算日志完整性：关键字段齐全且可对账",
+    "test_health_levels_render_from_global_default_table": "平台治理页展示账号健康分档位时，可读取无平台编号默认档位",
+    "test_account_health_publish_requires_submitted_config": "平台负责人未提交健康分配置时提交发布被拦截",
+    "test_account_health_publish_next_round_effective_and_deducts": "平台发布账号健康分规则后下一轮生效，标题党文章命中扣分并更新档位",
+    "test_non_clickbait_does_not_change_health_score": "非标题党文章不触发健康分扣减",
+    "test_account_health_cancel_next_round_disabled": "平台取消账号健康分规则后下一轮失效",
+    "test_health_recovery_updates_score_and_log": "健康分恢复机制生效后可自动恢复并记录日志",
+    "test_health_recovery_not_run_when_measure_not_effective": "账号健康分治理措施未生效时，不执行健康分恢复",
+    "test_health_deduction_floor_at_zero": "健康分扣减下限为0，不出现负分",
+    "test_account_health_publish_permission_denied": "非平台角色提交账号健康分发布被拒绝",
 }
 
 
-def _run_pytest() -> int:
+def _run_pytest() -> tuple[int, bool]:
     env = os.environ.copy()
     env.setdefault("DJANGO_SETTINGS_MODULE", "sandbox_site.settings")
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
     junit_path = REPORTS_DIR / "junit.xml"
+    try:
+        junit_path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
     cmd = [
         sys.executable,
         "-m",
@@ -48,7 +73,8 @@ def _run_pytest() -> int:
     p = subprocess.run(cmd, cwd=str(ROOT), env=env, text=True, capture_output=True)
     (REPORTS_DIR / "pytest_stdout.txt").write_text(p.stdout or "", encoding="utf-8")
     (REPORTS_DIR / "pytest_stderr.txt").write_text(p.stderr or "", encoding="utf-8")
-    return p.returncode
+    junit_generated = junit_path.exists()
+    return p.returncode, junit_generated
 
 
 def _parse_junit_results(junit_path: Path) -> tuple[int, int, int]:
@@ -135,14 +161,18 @@ def _parse_junit_cases(junit_path: Path) -> list[dict]:
     return cases
 
 
-def _write_report(exit_code: int) -> None:
+def _write_report(exit_code: int, junit_generated: bool) -> None:
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     junit_path = REPORTS_DIR / "junit.xml"
     stdout_path = REPORTS_DIR / "pytest_stdout.txt"
     stderr_path = REPORTS_DIR / "pytest_stderr.txt"
 
-    total, failures, errors = _parse_junit_results(junit_path)
-    case_rows = _parse_junit_cases(junit_path)
+    if junit_generated:
+        total, failures, errors = _parse_junit_results(junit_path)
+        case_rows = _parse_junit_cases(junit_path)
+    else:
+        total, failures, errors = 0, 0, 0
+        case_rows = []
     passed = max(0, total - failures - errors)
 
     stdout = ""
@@ -167,7 +197,10 @@ def _write_report(exit_code: int) -> None:
     lines.append("")
     lines.append(f"- 生成时间：{now}")
     lines.append(f"- 结果：{'通过' if exit_code == 0 else '失败'}（pytest exit_code={exit_code}）")
-    lines.append(f"- 用例统计（来自 junit.xml）：total={total}, passed≈{passed}, failures={failures}, errors={errors}")
+    if junit_generated:
+        lines.append(f"- 用例统计（来自 junit.xml）：total={total}, passed≈{passed}, failures={failures}, errors={errors}")
+    else:
+        lines.append("- 用例统计：本次未生成 `junit.xml`（通常是 pytest 未成功启动或提前失败）")
     lines.append("")
     lines.append("## 产物路径")
     lines.append("")
@@ -192,7 +225,7 @@ def _write_report(exit_code: int) -> None:
                 lines.append("- 问题原因：—")
             lines.append("")
     else:
-        lines.append("- 未解析到 junit 用例明细，请检查 `junit.xml` 是否生成。")
+        lines.append("- 未解析到本次用例明细，请检查 `pytest_stderr.txt` 与运行环境。")
         lines.append("")
 
     lines.append("## 失败摘要（自动抽取，可能不完整）")
@@ -254,8 +287,8 @@ def _write_report(exit_code: int) -> None:
 
 
 def main() -> int:
-    exit_code = _run_pytest()
-    _write_report(exit_code)
+    exit_code, junit_generated = _run_pytest()
+    _write_report(exit_code, junit_generated)
     return exit_code
 
 

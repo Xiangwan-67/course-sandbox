@@ -1401,16 +1401,35 @@ def _get_latest_account_health_config(platform_id: int):
 
 
 def _get_effective_health_level_configs(round_num: int, platform_id: int = None, config_id: int = None):
-    """获取指定轮次生效的健康分档位配置列表（按排序优先）。"""
-    qs = AccountHealthLevelConfig.objects.filter(生效轮次起__lte=round_num)
-    if platform_id is not None:
-        qs = qs.filter(平台=platform_id)
-    if config_id is not None:
-        qs = qs.filter(config_id=config_id)
-    return list(
-        qs.filter(Q(生效轮次止__isnull=True) | Q(生效轮次止__gte=round_num))
-        .order_by('排序', '下界开', '上界闭', 'id')
+    """获取指定轮次生效的健康分档位配置列表（按排序优先）。
+
+    查询优先级：
+    1) 平台+配置专属档位；
+    2) 平台专属默认档位（config 为空）；
+    3) 全局默认档位（平台为空，config 为空）。
+    """
+    base_qs = AccountHealthLevelConfig.objects.filter(
+        生效轮次起__lte=round_num
+    ).filter(
+        Q(生效轮次止__isnull=True) | Q(生效轮次止__gte=round_num)
     )
+
+    if platform_id is not None:
+        base_qs = base_qs.filter(Q(平台=platform_id) | Q(平台__isnull=True))
+
+    def _ordered(qs):
+        return list(qs.order_by('排序', '下界开', '上界闭', 'id'))
+
+    if config_id is not None:
+        preferred = _ordered(base_qs.filter(config_id=config_id))
+        if preferred:
+            return preferred
+
+    platform_default = _ordered(base_qs.filter(平台=platform_id, config_id__isnull=True)) if platform_id is not None else []
+    if platform_default:
+        return platform_default
+
+    return _ordered(base_qs.filter(平台__isnull=True, config_id__isnull=True))
 
 
 def _resolve_health_tier_and_ratio(score: int, configs):
@@ -1428,6 +1447,11 @@ def _match_push_ratio(score: int, configs):
 
 def _recover_writer_health_for_platform(platform_id: int, round_num: int):
     """按平台执行健康分恢复机制（在结束本轮时调用）。"""
+    # 与扣分口径保持一致：仅在“账号健康分治理措施处于生效中”时，才允许执行恢复。
+    health_rule = _get_effective_health_rule(platform_id, round_num)
+    if not health_rule:
+        return
+
     cfg = _get_latest_account_health_config(platform_id)
     if not cfg or not cfg.是否启用恢复机制:
         return
