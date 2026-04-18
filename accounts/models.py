@@ -220,10 +220,72 @@ class PlatformPatrolResult(models.Model):
         ordering = ['-创建时间', '-id']
 
 
+class RegulatorFineApplication(models.Model):
+    """监管机构罚款申请（待管理员审核）。"""
+
+    STATUS_CHOICES = [
+        ('pending', '待审核'),
+        ('approved', '已通过'),
+        ('rejected', '已驳回'),
+    ]
+    FINE_TIER_CHOICES = [
+        ('light', '轻微'),
+        ('basic', '基础'),
+        ('medium', '中等'),
+        ('strict', '严格'),
+    ]
+
+    申请轮次 = models.PositiveIntegerField()
+    平台编号 = models.IntegerField()
+    平台名称 = models.CharField(max_length=64)
+    罚款档次 = models.CharField(max_length=16, choices=FINE_TIER_CHOICES)
+    申请状态 = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    申请人账号 = models.CharField(max_length=64, blank=True)
+    管理员确认账号 = models.CharField(max_length=100, blank=True)
+    管理员确认时间 = models.DateTimeField(null=True, blank=True)
+    创建时间 = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = '监管机构罚款申请表'
+        verbose_name = '监管机构罚款申请表'
+        verbose_name_plural = '监管机构罚款申请表'
+        ordering = ['-创建时间', '-id']
+
+
+class RegulatorFineRecord(models.Model):
+    """监管机构罚款生效记录（管理员批准后写入，参与周期利润监管成本）。"""
+
+    执行轮次 = models.PositiveIntegerField()
+    平台编号 = models.IntegerField()
+    平台名称 = models.CharField(max_length=64)
+    罚款档次 = models.CharField(max_length=16, choices=RegulatorFineApplication.FINE_TIER_CHOICES)
+    申请记录 = models.ForeignKey(
+        RegulatorFineApplication,
+        on_delete=models.CASCADE,
+        related_name='罚款记录',
+    )
+    监管成本数值 = models.DecimalField(
+        max_digits=18,
+        decimal_places=6,
+        help_text='审批时快照，与监管成本权重相乘计入周期利润',
+    )
+    创建时间 = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = '监管机构罚款记录表'
+        verbose_name = '监管机构罚款记录表'
+        verbose_name_plural = '监管机构罚款记录表'
+        ordering = ['-创建时间', '-id']
+
+
 class AdminBaseConfig(models.Model):
-    """管理员基础配置（单行，id=1）：自动巡查比例等。"""
+    """管理员基础配置（单行，id=1）：自动巡查比例、罚款档次对应监管成本输入值等。"""
 
     自动巡查比例 = models.DecimalField(max_digits=5, decimal_places=4, default=Decimal('0.5'))
+    罚款轻微监管成本 = models.DecimalField(max_digits=18, decimal_places=6, default=Decimal('-1'))
+    罚款基础监管成本 = models.DecimalField(max_digits=18, decimal_places=6, default=Decimal('-2'))
+    罚款中等监管成本 = models.DecimalField(max_digits=18, decimal_places=6, default=Decimal('-4'))
+    罚款严格监管成本 = models.DecimalField(max_digits=18, decimal_places=6, default=Decimal('-8'))
     更新时间 = models.DateTimeField(auto_now=True)
 
     class Meta:

@@ -29,6 +29,7 @@ urlpatterns = [
     path('regulator/special-action/submit/', views.regulator_special_action_submit, name='regulator_special_action_submit'),
     path('regulator/platform-patrol/', views.regulator_platform_patrol, name='regulator_platform_patrol'),
     path('regulator/platform-patrol/submit/', views.regulator_platform_patrol_submit, name='regulator_platform_patrol_submit'),
+    path('regulator/fine/submit/', views.regulator_fine_submit, name='regulator_fine_submit'),
     path('regulator/platform-spot-check/<int:pk>/open/', views.platform_spot_check_open, name='platform_spot_check_open'),
     path('regulator/platform-spot-check/<int:pk>/', views.platform_spot_check_detail, name='platform_spot_check_detail'),
     path('writer/', views.writer_home, name='writer_home'),

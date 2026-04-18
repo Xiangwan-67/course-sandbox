@@ -17,6 +17,7 @@ from accounts.models import (
     WriterAccount, UserAccount, PlatformAccount, RegulatorAccount,
     RegulationActionApplication, RegulationAction, PlatformSpotCheckResult,
     PlatformPatrolApplication, PlatformPatrolResult, AdminBaseConfig,
+    RegulatorFineApplication, RegulatorFineRecord,
     ProfitWeightConfig, PlatformCycleProfitRecord, PlatformGovernanceMeasure, PlatformPerformanceScheme, Article, Comment, PlatformSwitchSurvey,
     UserFollowWriter, UnfollowSurvey, ArticlePush, ArticlePushDetail,
     UserArticleLike, UserArticleCollect, UserArticleReadComplete,
@@ -609,12 +610,17 @@ def _regulator_monitoring_boxes(current_round: int):
         patrol_pending = PlatformPatrolApplication.objects.filter(
             平台编号=pid, 申请状态='pending'
         ).exists()
+        fine_pending = RegulatorFineApplication.objects.filter(
+            平台编号=pid, 申请状态='pending'
+        ).exists()
         row = {
             'platform_id': pid,
             'platform_name': item['name'],
             'has_patrol': latest is not None,
             'current_round': current_round,
             'has_pending': patrol_pending,
+            'fine_pending': fine_pending,
+            'can_submit_fine': (latest is not None) and (not fine_pending),
         }
         if latest:
             exec_r = int(latest.执行轮次)
@@ -967,6 +973,64 @@ def regulator_platform_patrol_submit(request):
     regulator_action_log(
         f"监管机构申请平台巡查 申请编号：{app.pk}、平台编号：{platform_id}、平台名称：{pname}、"
         f"巡查比例：{patrol_ratio}、起始轮次：{start_round}、终止轮次：{end_round}"
+    )
+    return JsonResponse({
+        'ok': True,
+        'application_id': app.pk,
+        'status': app.申请状态,
+    })
+
+
+@require_http_methods(['POST'])
+def regulator_fine_submit(request):
+    """监管机构提交罚款申请（待管理员审核）。"""
+    account = request.session.get('account', '')
+    if not account or request.session.get('role') != 'regulator':
+        return JsonResponse({'error': '未登录或非监管机构角色'}, status=403)
+
+    payload = {}
+    if request.content_type and 'application/json' in request.content_type:
+        try:
+            payload = json.loads((request.body or b'').decode('utf-8') or '{}')
+        except Exception:
+            payload = {}
+    else:
+        return JsonResponse({'error': '请使用 application/json'}, status=400)
+
+    try:
+        platform_id = int(payload.get('platform_id'))
+    except (TypeError, ValueError):
+        return JsonResponse({'error': '平台编号非法'}, status=400)
+
+    valid_platform_ids = {item['id'] for item in _all_platform_choices()}
+    if platform_id not in valid_platform_ids:
+        return JsonResponse({'error': '平台编号非法'}, status=400)
+
+    tier = (payload.get('fine_tier') or '').strip()
+    valid_tiers = {c[0] for c in RegulatorFineApplication.FINE_TIER_CHOICES}
+    if tier not in valid_tiers:
+        return JsonResponse({'error': '罚款档次非法'}, status=400)
+
+    if not PlatformPatrolResult.objects.filter(平台编号=platform_id).exists():
+        return JsonResponse({'error': '当前平台无巡查记录，无法发起罚款'}, status=400)
+
+    if RegulatorFineApplication.objects.filter(平台编号=platform_id, 申请状态='pending').exists():
+        return JsonResponse({'error': '该平台已有待审核的罚款申请'}, status=400)
+
+    current_round = _get_current_round()
+    pname = _platform_name(platform_id)
+    app = RegulatorFineApplication.objects.create(
+        申请轮次=current_round,
+        平台编号=platform_id,
+        平台名称=pname,
+        罚款档次=tier,
+        申请状态='pending',
+        申请人账号=account,
+    )
+    tier_label = dict(RegulatorFineApplication.FINE_TIER_CHOICES).get(tier, tier)
+    regulator_action_log(
+        f"监管机构提交罚款申请 申请编号={app.pk} 申请轮次={current_round} 平台编号={platform_id} "
+        f"平台名称={pname} 罚款档次={tier_label}({tier})"
     )
     return JsonResponse({
         'ok': True,
@@ -2141,6 +2205,47 @@ def _recover_writer_health_for_platform(platform_id: int, round_num: int):
         )
 
 
+def _get_fine_tier_value(tier_code: str) -> Decimal:
+    """根据罚款档次代码从《管理员基础配置表》读取监管成本输入值（通常为负，与权重相乘后拉低利润）。"""
+    defaults = {
+        'light': Decimal('-1'),
+        'basic': Decimal('-2'),
+        'medium': Decimal('-4'),
+        'strict': Decimal('-8'),
+    }
+    cfg = AdminBaseConfig.objects.filter(pk=1).first()
+    attr_map = {
+        'light': '罚款轻微监管成本',
+        'basic': '罚款基础监管成本',
+        'medium': '罚款中等监管成本',
+        'strict': '罚款严格监管成本',
+    }
+    key = (tier_code or '').strip()
+    if key not in attr_map:
+        return defaults.get('light', Decimal('-1'))
+    if not cfg:
+        return defaults[key]
+    v = getattr(cfg, attr_map[key], None)
+    if v is None:
+        return defaults[key]
+    return Decimal(str(v))
+
+
+def _supervision_cost_from_regulatory_fines(platform_id: int, end_round: int):
+    """
+    周期利润结算用监管成本：取该平台在 end_round 之前（含）已生效的最近一次罚款记录。
+    """
+    rec = (
+        RegulatorFineRecord.objects.filter(平台编号=platform_id, 执行轮次__lte=end_round)
+        .order_by('-执行轮次', '-id')
+        .first()
+    )
+    if not rec:
+        return '无', Decimal('0')
+    label = dict(RegulatorFineApplication.FINE_TIER_CHOICES).get(rec.罚款档次, rec.罚款档次)
+    return f'罚款{label}', rec.监管成本数值
+
+
 def _settle_cycle_profit(platform_id: int, cycle_index: int, start_round: int, end_round: int):
     """按周期结算平台利润并写入 PlatformCycleProfitRecord。"""
     cfg = _get_effective_profit_config(end_round, platform_id) or ProfitWeightConfig.objects.order_by('-id').first()
@@ -2168,9 +2273,9 @@ def _settle_cycle_profit(platform_id: int, cycle_index: int, start_round: int, e
     total_finish = int(agg.get('total_finish') or 0)
     fans_snapshot = UserAccount.objects.filter(所属平台=platform_id).count()
 
-    # 监管成本预留：当前先置 0
-    supervision_cost_level = '无'
-    supervision_cost_value = Decimal('0')
+    supervision_cost_level, supervision_cost_value = _supervision_cost_from_regulatory_fines(
+        platform_id, end_round
+    )
 
     click_w = _decimal(cfg.点击率权重)
     collect_w = _decimal(cfg.收藏率权重)

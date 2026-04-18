@@ -3,6 +3,7 @@ from .models import (
     WriterAccount, UserAccount, PlatformAccount, RegulatorAccount,
     RegulationActionApplication, RegulationAction, PlatformSpotCheckResult,
     PlatformPatrolApplication, PlatformPatrolResult, AdminBaseConfig,
+    RegulatorFineApplication, RegulatorFineRecord,
     ProfitWeightConfig, PlatformCycleProfitRecord,
     PlatformGovernanceMeasure, PlatformPerformanceScheme,
     AccountHealthConfig, AccountHealthLevelConfig, WriterNoticeRead, WriterHealthScoreLog,
@@ -38,10 +39,89 @@ class RegulatorAccountAdmin(admin.ModelAdmin):
 
 @admin.register(AdminBaseConfig)
 class AdminBaseConfigAdmin(admin.ModelAdmin):
-    list_display = ['id', '自动巡查比例', '更新时间']
+    list_display = [
+        'id', '自动巡查比例',
+        '罚款轻微监管成本', '罚款基础监管成本', '罚款中等监管成本', '罚款严格监管成本',
+        '更新时间',
+    ]
 
     def has_add_permission(self, request):
         return not AdminBaseConfig.objects.exists()
+
+
+@admin.register(RegulatorFineApplication)
+class RegulatorFineApplicationAdmin(admin.ModelAdmin):
+    list_display = [
+        'id', '申请轮次', '平台编号', '平台名称', '罚款档次', '申请状态',
+        '申请人账号', '管理员确认账号', '管理员确认时间', '创建时间',
+    ]
+    list_filter = ['申请状态', '罚款档次', '平台编号']
+    actions = ['approve_fine_applications', 'reject_fine_applications']
+
+    @admin.action(description='审核通过：生成罚款记录并生效')
+    def approve_fine_applications(self, request, queryset):
+        from django.utils import timezone
+        from accounts.views import _get_current_round, _get_fine_tier_value
+        from accounts.action_logger import admin_action_log, regulator_action_log
+
+        admin_account = getattr(request.user, 'username', str(request.user))
+        now = timezone.now()
+
+        for app in queryset.filter(申请状态='pending'):
+            exec_r = _get_current_round()
+            val = _get_fine_tier_value(app.罚款档次)
+            RegulatorFineRecord.objects.create(
+                执行轮次=exec_r,
+                平台编号=app.平台编号,
+                平台名称=app.平台名称,
+                罚款档次=app.罚款档次,
+                申请记录=app,
+                监管成本数值=val,
+            )
+            app.申请状态 = 'approved'
+            app.管理员确认账号 = admin_account
+            app.管理员确认时间 = now
+            app.save(update_fields=['申请状态', '管理员确认账号', '管理员确认时间'])
+            tier_label = dict(RegulatorFineApplication.FINE_TIER_CHOICES).get(app.罚款档次, app.罚款档次)
+            admin_action_log(
+                f"管理员批准罚款申请 申请编号={app.pk} 平台编号={app.平台编号} 平台名称={app.平台名称} "
+                f"罚款档次={tier_label} 执行轮次={exec_r}"
+            )
+            regulator_action_log(
+                f"罚款申请 id={app.pk} 已通过 平台={app.平台名称} 平台编号={app.平台编号} "
+                f"罚款档次={tier_label} 执行轮次={exec_r}"
+            )
+
+    @admin.action(description='驳回：罚款申请不通过')
+    def reject_fine_applications(self, request, queryset):
+        from django.utils import timezone
+        from accounts.action_logger import admin_action_log, regulator_action_log
+
+        admin_account = getattr(request.user, 'username', str(request.user))
+        now = timezone.now()
+
+        for app in queryset.filter(申请状态='pending'):
+            app.申请状态 = 'rejected'
+            app.管理员确认账号 = admin_account
+            app.管理员确认时间 = now
+            app.save(update_fields=['申请状态', '管理员确认账号', '管理员确认时间'])
+            tier_label = dict(RegulatorFineApplication.FINE_TIER_CHOICES).get(app.罚款档次, app.罚款档次)
+            admin_action_log(
+                f"管理员驳回罚款申请 申请编号={app.pk} 平台编号={app.平台编号} 平台名称={app.平台名称} "
+                f"罚款档次={tier_label}"
+            )
+            regulator_action_log(
+                f"罚款申请 id={app.pk} 已驳回 平台={app.平台名称} 平台编号={app.平台编号} "
+                f"罚款档次={tier_label}"
+            )
+
+
+@admin.register(RegulatorFineRecord)
+class RegulatorFineRecordAdmin(admin.ModelAdmin):
+    list_display = [
+        'id', '执行轮次', '平台编号', '平台名称', '罚款档次', '监管成本数值', '申请记录', '创建时间',
+    ]
+    list_filter = ['平台编号', '罚款档次']
 
 
 @admin.register(RegulationActionApplication)

@@ -58,6 +58,40 @@
       font-size: 14px;
     }
     .monitor-action a:hover { background: #f0f0f0; }
+    .monitor-action .btn-fine {
+      display: inline-block;
+      padding: 6px 16px;
+      border: 1px solid #8b4513;
+      background: #fff8f0;
+      color: #333;
+      border-radius: 4px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .monitor-action .btn-fine:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    #fine-modal-overlay {
+      display: none;
+      position: fixed;
+      left: 0; top: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.35);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+    #fine-modal-overlay.show { display: flex; }
+    .fine-modal-box {
+      background: #fff;
+      padding: 20px 24px;
+      border-radius: 8px;
+      min-width: 300px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+    }
+    .fine-modal-box h3 { margin-top: 0; }
+    .fine-modal-actions { margin-top: 16px; text-align: right; }
+    .fine-modal-actions button { margin-left: 8px; padding: 6px 14px; }
   </style>
 </head>
 <body>
@@ -100,10 +134,48 @@
           <div class="monitor-action">
             <a href="{% url 'accounts:regulator_platform_patrol' %}?platform_id={{ box.platform_id }}">启动巡查</a>
           </div>
+          <div class="monitor-action">
+            {% if not box.has_patrol %}
+              <button type="button" class="btn-fine" disabled title="无巡查记录，无法发起罚款">罚款</button>
+            {% elif box.fine_pending %}
+              <button type="button" class="btn-fine" disabled title="有待审核的罚款申请">罚款</button>
+            {% else %}
+              <button type="button" class="btn-fine js-open-fine" data-platform-id="{{ box.platform_id }}" data-platform-name="{{ box.platform_name }}">罚款</button>
+            {% endif %}
+          </div>
         </div>
       {% endfor %}
     </div>
   </section>
+
+  <div id="fine-modal-overlay" role="dialog" aria-modal="true">
+    <div class="fine-modal-box">
+      <h3>罚款</h3>
+      <div id="fine-form-panel">
+        <p>平台：<strong id="fine-modal-platform"></strong></p>
+        <label>
+          罚款档次：
+          <select id="fine-tier-select">
+            <option value="light">轻微</option>
+            <option value="basic">基础</option>
+            <option value="medium">中等</option>
+            <option value="strict">严格</option>
+          </select>
+        </label>
+        <div class="fine-modal-actions">
+          <button type="button" id="fine-btn-cancel">取消</button>
+          <button type="button" id="fine-btn-submit">提交申请</button>
+        </div>
+      </div>
+      <div id="fine-done-panel" hidden>
+        <p>待管理员审核。</p>
+        <div class="fine-modal-actions">
+          <button type="button" id="fine-btn-close">关闭</button>
+        </div>
+      </div>
+      <p id="fine-err" style="color:#a00;margin-top:8px;" hidden></p>
+    </div>
+  </div>
 
   <h2>专项整治行动管理</h2>
   <p>当前轮次：第 {{ current_round }} 轮；进行中的整治：{{ ongoing_count }} 项</p>
@@ -176,7 +248,69 @@
     </table>
   </div>
 
+  {% csrf_token %}
   <script>
+    function getCookie(name) {
+      const value = `; ${document.cookie}`;
+      const parts = value.split(`; ${name}=`);
+      if (parts.length === 2) return parts.pop().split(';').shift();
+      return '';
+    }
+
+    var fineOverlay = document.getElementById('fine-modal-overlay');
+    var finePid = null;
+    document.querySelectorAll('.js-open-fine').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        finePid = parseInt(btn.getAttribute('data-platform-id'), 10);
+        document.getElementById('fine-modal-platform').textContent = btn.getAttribute('data-platform-name') || '';
+        document.getElementById('fine-form-panel').hidden = false;
+        document.getElementById('fine-done-panel').hidden = true;
+        document.getElementById('fine-err').hidden = true;
+        document.getElementById('fine-tier-select').value = 'light';
+        fineOverlay.classList.add('show');
+      });
+    });
+    document.getElementById('fine-btn-cancel').addEventListener('click', function () {
+      fineOverlay.classList.remove('show');
+    });
+    document.getElementById('fine-btn-close').addEventListener('click', function () {
+      fineOverlay.classList.remove('show');
+      window.location.reload();
+    });
+    document.getElementById('fine-btn-submit').addEventListener('click', function () {
+      var err = document.getElementById('fine-err');
+      err.hidden = true;
+      fetch('{% url "accounts:regulator_fine_submit" %}', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': getCookie('csrftoken'),
+        },
+        body: JSON.stringify({
+          platform_id: finePid,
+          fine_tier: document.getElementById('fine-tier-select').value,
+        }),
+        credentials: 'same-origin',
+      })
+        .then(function (r) { return r.json().then(function (data) { return { ok: r.ok, data: data }; }); })
+        .then(function (res) {
+          if (res.ok && res.data.ok) {
+            document.getElementById('fine-form-panel').hidden = true;
+            document.getElementById('fine-done-panel').hidden = false;
+          } else {
+            err.textContent = (res.data && res.data.error) ? res.data.error : '提交失败';
+            err.hidden = false;
+          }
+        })
+        .catch(function () {
+          err.textContent = '网络错误';
+          err.hidden = false;
+        });
+    });
+    fineOverlay.addEventListener('click', function (e) {
+      if (e.target === fineOverlay) fineOverlay.classList.remove('show');
+    });
+
     document.querySelectorAll('.tab-btn').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var tab = btn.getAttribute('data-tab');
