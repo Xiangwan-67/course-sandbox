@@ -2,6 +2,7 @@ from django.contrib import admin
 from .models import (
     WriterAccount, UserAccount, PlatformAccount, RegulatorAccount,
     RegulationActionApplication, RegulationAction, PlatformSpotCheckResult,
+    PlatformPatrolApplication, PlatformPatrolResult,
     ProfitWeightConfig, PlatformCycleProfitRecord,
     PlatformGovernanceMeasure, PlatformPerformanceScheme,
     AccountHealthConfig, AccountHealthLevelConfig, WriterNoticeRead, WriterHealthScoreLog,
@@ -127,6 +128,67 @@ class PlatformSpotCheckResultAdmin(admin.ModelAdmin):
         'id', '行动编号', '整治平台编号', '整治平台名称', '是否查看', '专项行动',
     ]
     list_filter = ['是否查看', '行动编号']
+
+
+@admin.register(PlatformPatrolApplication)
+class PlatformPatrolApplicationAdmin(admin.ModelAdmin):
+    list_display = [
+        'id', '申请轮次', '平台编号', '平台名称', '巡查比例',
+        '起始轮次', '终止轮次', '申请状态', '申请人账号',
+        '管理员确认账号', '管理员确认时间', '创建时间',
+    ]
+    list_filter = ['申请状态', '平台编号', '申请轮次']
+    actions = ['approve_patrol_applications', 'reject_patrol_applications']
+
+    @admin.action(description='审核通过：执行平台巡查并写入结果')
+    def approve_patrol_applications(self, request, queryset):
+        from django.utils import timezone
+        from accounts.views import _execute_platform_patrol
+        from accounts.action_logger import admin_action_log
+
+        admin_account = getattr(request.user, 'username', str(request.user))
+        now = timezone.now()
+
+        for app in queryset.filter(申请状态='pending'):
+            _, err = _execute_platform_patrol(app)
+            if err:
+                self.message_user(request, f'申请 id={app.pk} 未通过：{err}', level='ERROR')
+                continue
+
+            app.申请状态 = 'approved'
+            app.管理员确认账号 = admin_account
+            app.管理员确认时间 = now
+            app.save(update_fields=['申请状态', '管理员确认账号', '管理员确认时间'])
+
+            admin_action_log(
+                f"管理员已批准监管机构-平台巡查申请 申请编号：{app.pk}、平台名称：{app.平台名称}、平台编号：{app.平台编号}"
+            )
+
+    @admin.action(description='驳回：平台巡查申请不通过')
+    def reject_patrol_applications(self, request, queryset):
+        from django.utils import timezone
+        from accounts.action_logger import admin_action_log
+
+        admin_account = getattr(request.user, 'username', str(request.user))
+        now = timezone.now()
+
+        for app in queryset.filter(申请状态='pending'):
+            app.申请状态 = 'rejected'
+            app.管理员确认账号 = admin_account
+            app.管理员确认时间 = now
+            app.save(update_fields=['申请状态', '管理员确认账号', '管理员确认时间'])
+            admin_action_log(
+                f"管理员已驳回监管机构-平台巡查申请 申请编号：{app.pk}、平台名称：{app.平台名称}、平台编号：{app.平台编号}"
+            )
+
+
+@admin.register(PlatformPatrolResult)
+class PlatformPatrolResultAdmin(admin.ModelAdmin):
+    list_display = [
+        'id', '申请记录', '平台编号', '平台名称', '巡查比例',
+        '起始轮次', '终止轮次', '用户数', '抽查文章数', '标题党率', '创建时间',
+    ]
+    list_filter = ['平台编号']
 
 
 @admin.register(ProfitWeightConfig)

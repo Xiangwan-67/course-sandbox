@@ -147,6 +147,60 @@ class PlatformSpotCheckResult(models.Model):
         ordering = ['-id']
 
 
+class PlatformPatrolApplication(models.Model):
+    """监管机构平台巡查申请（待管理员审核）。"""
+
+    STATUS_CHOICES = [
+        ('pending', '待审核'),
+        ('approved', '已通过'),
+        ('rejected', '已驳回'),
+    ]
+
+    申请轮次 = models.PositiveIntegerField()
+    平台编号 = models.IntegerField()
+    平台名称 = models.CharField(max_length=64)
+    巡查比例 = models.DecimalField(max_digits=5, decimal_places=4)
+    起始轮次 = models.PositiveIntegerField()
+    终止轮次 = models.PositiveIntegerField()
+    申请状态 = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    申请人账号 = models.CharField(max_length=64, blank=True)
+    管理员确认账号 = models.CharField(max_length=100, blank=True)
+    管理员确认时间 = models.DateTimeField(null=True, blank=True)
+    创建时间 = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = '监管机构平台巡查申请表'
+        verbose_name = '监管机构平台巡查申请表'
+        verbose_name_plural = '监管机构平台巡查申请表'
+        ordering = ['-创建时间', '-id']
+
+
+class PlatformPatrolResult(models.Model):
+    """监管机构平台巡查执行结果（管理员审核通过后生成）。"""
+
+    申请记录 = models.OneToOneField(
+        PlatformPatrolApplication,
+        on_delete=models.CASCADE,
+        related_name='巡查结果',
+    )
+    平台编号 = models.IntegerField()
+    平台名称 = models.CharField(max_length=64)
+    巡查比例 = models.DecimalField(max_digits=5, decimal_places=4)
+    起始轮次 = models.PositiveIntegerField()
+    终止轮次 = models.PositiveIntegerField()
+    用户数 = models.PositiveIntegerField(default=0)
+    抽查文章数 = models.PositiveIntegerField(default=0)
+    抽查文章列表 = models.JSONField(default=list, blank=True)
+    标题党率 = models.DecimalField(max_digits=7, decimal_places=6, default=Decimal('0'))
+    创建时间 = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = '监管机构平台巡查表'
+        verbose_name = '监管机构平台巡查表'
+        verbose_name_plural = '监管机构平台巡查表'
+        ordering = ['-创建时间', '-id']
+
+
 class ProfitWeightConfig(models.Model):
     """平台利润计算：因子权重配置（管理员维护，按平台独立配置）。"""
 

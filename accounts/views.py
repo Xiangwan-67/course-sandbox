@@ -8,6 +8,7 @@ from django.db.models import F, Sum, Q
 from decimal import Decimal
 from django.views.decorators.csrf import ensure_csrf_cookie
 import json, time
+import random
 import threading
 from django.conf import settings
 from accounts.action_logger import action_log, regulator_action_log
@@ -15,6 +16,7 @@ from accounts.db_retry import retry_on_db_locked
 from accounts.models import (
     WriterAccount, UserAccount, PlatformAccount, RegulatorAccount,
     RegulationActionApplication, RegulationAction, PlatformSpotCheckResult,
+    PlatformPatrolApplication, PlatformPatrolResult,
     ProfitWeightConfig, PlatformCycleProfitRecord, PlatformGovernanceMeasure, PlatformPerformanceScheme, Article, Comment, PlatformSwitchSurvey,
     UserFollowWriter, UnfollowSurvey, ArticlePush, ArticlePushDetail,
     UserArticleLike, UserArticleCollect, UserArticleReadComplete,
@@ -837,6 +839,76 @@ def regulator_special_action_submit(request):
         'action_id': action_id,
         'status': app.申请状态,
         'active_round_range': {'start_round': start_round, 'end_round': end_round},
+    })
+
+
+@require_http_methods(['POST'])
+def regulator_platform_patrol_submit(request):
+    """监管机构提交平台巡查申请（待管理员审核）。"""
+    account = request.session.get('account', '')
+    if not account or request.session.get('role') != 'regulator':
+        return JsonResponse({'error': '未登录或非监管机构角色'}, status=403)
+
+    payload = {}
+    if request.content_type and 'application/json' in request.content_type:
+        try:
+            payload = json.loads((request.body or b'').decode('utf-8') or '{}')
+        except Exception:
+            payload = {}
+    else:
+        return JsonResponse({'error': '请使用 application/json'}, status=400)
+
+    try:
+        platform_id = int(payload.get('platform_id'))
+    except (TypeError, ValueError):
+        return JsonResponse({'error': '平台编号非法'}, status=400)
+
+    valid_platform_ids = {item['id'] for item in _all_platform_choices()}
+    if platform_id not in valid_platform_ids:
+        return JsonResponse({'error': '平台编号非法'}, status=400)
+
+    try:
+        patrol_ratio = Decimal(str(payload.get('patrol_ratio', '0.5')))
+    except Exception:
+        return JsonResponse({'error': '巡查比例非法'}, status=400)
+    if patrol_ratio < 0 or patrol_ratio > 1:
+        return JsonResponse({'error': '巡查比例须在 0～1 之间'}, status=400)
+
+    try:
+        start_round = int(payload.get('start_round'))
+        end_round = int(payload.get('end_round'))
+    except (TypeError, ValueError):
+        return JsonResponse({'error': '起始/终止轮次须为整数'}, status=400)
+
+    current_round = _get_current_round()
+    if start_round > end_round:
+        return JsonResponse({'error': '起始轮次不能大于终止轮次'}, status=400)
+    if end_round >= current_round:
+        return JsonResponse({'error': '终止轮次须严格小于当前轮次'}, status=400)
+
+    if PlatformPatrolApplication.objects.filter(平台编号=platform_id, 申请状态='pending').exists():
+        return JsonResponse({'error': '该平台已有待审核的平台巡查申请'}, status=400)
+
+    pname = _platform_name(platform_id)
+    app = PlatformPatrolApplication.objects.create(
+        申请轮次=current_round,
+        平台编号=platform_id,
+        平台名称=pname,
+        巡查比例=patrol_ratio,
+        起始轮次=start_round,
+        终止轮次=end_round,
+        申请状态='pending',
+        申请人账号=account,
+    )
+
+    regulator_action_log(
+        f"监管机构申请平台巡查 申请编号：{app.pk}、平台编号：{platform_id}、平台名称：{pname}、"
+        f"巡查比例：{patrol_ratio}、起始轮次：{start_round}、终止轮次：{end_round}"
+    )
+    return JsonResponse({
+        'ok': True,
+        'application_id': app.pk,
+        'status': app.申请状态,
     })
 
 
@@ -1697,6 +1769,77 @@ def is_clickbait(article, platform_id: int, round_num: int) -> bool:
     Y = int(article.内容相关度_校准值 or article.内容相关度_初始值 or 0)
 
     return (X >= X_threshold) and (Y < Y_threshold)
+
+
+def _execute_platform_patrol(application):
+    """
+    执行平台巡查并写入 PlatformPatrolResult。
+    返回 (result, None) 成功，或 (None, error_message)。
+    """
+    current_round = _get_current_round()
+    if application.起始轮次 > application.终止轮次:
+        return None, '起始轮次不能大于终止轮次'
+    if application.终止轮次 >= current_round:
+        return None, '终止轮次须严格小于当前轮次'
+
+    if PlatformPatrolResult.objects.filter(申请记录=application).exists():
+        return None, '该申请已存在巡查结果'
+
+    platform_id = application.平台编号
+    writers = list(WriterAccount.objects.filter(所属平台=platform_id).values_list('账号', flat=True))
+    id_list = list(
+        Article.objects.filter(
+            写手账号__in=writers,
+            轮次__gte=application.起始轮次,
+            轮次__lte=application.终止轮次,
+        ).values_list('id', flat=True)
+    )
+    total = len(id_list)
+    ratio = float(application.巡查比例)
+    sample_count = max(0, int(round(total * ratio)))
+
+    rng = random.Random(application.pk)
+    if total == 0:
+        sampled_ids = []
+    else:
+        k = min(sample_count, total)
+        sampled_ids = rng.sample(id_list, k)
+
+    articles = Article.objects.filter(id__in=sampled_ids)
+    art_by_id = {a.id: a for a in articles}
+    ordered = [art_by_id[i] for i in sampled_ids if i in art_by_id]
+
+    clickbait_n = 0
+    for art in ordered:
+        if art.is_clickbait is True:
+            clickbait_n += 1
+        elif art.is_clickbait is False:
+            pass
+        else:
+            if is_clickbait(art, platform_id, art.轮次):
+                clickbait_n += 1
+
+    n = len(sampled_ids)
+    if n == 0:
+        rate = Decimal('0')
+    else:
+        rate = Decimal(clickbait_n) / Decimal(n)
+
+    user_count = UserAccount.objects.filter(所属平台=platform_id).count()
+
+    result = PlatformPatrolResult.objects.create(
+        申请记录=application,
+        平台编号=platform_id,
+        平台名称=application.平台名称,
+        巡查比例=application.巡查比例,
+        起始轮次=application.起始轮次,
+        终止轮次=application.终止轮次,
+        用户数=user_count,
+        抽查文章数=n,
+        抽查文章列表=sampled_ids,
+        标题党率=rate,
+    )
+    return result, None
 
 
 def _get_effective_health_rule(platform_id: int, round_num: int):
