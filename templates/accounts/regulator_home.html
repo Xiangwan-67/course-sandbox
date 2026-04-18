@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>监管机构 - 专项整治行动管理</title>
+  <style>
+    .tab-btn { padding: 6px 14px; margin-right: 8px; cursor: pointer; border: 1px solid #ccc; background: #f5f5f5; }
+    .tab-btn.active { background: #fff; border-bottom-color: #fff; font-weight: bold; }
+    .panel { display: none; margin-top: 12px; }
+    .panel.active { display: block; }
+    table { border-collapse: collapse; width: 100%; max-width: 960px; }
+    th, td { border: 1px solid #ddd; padding: 8px 10px; text-align: left; }
+    th { background: #fafafa; }
+    .op-wait { color: #999; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+  <p>
+    <a href="{% url 'accounts:regulator_special_action' %}">发起专项整治</a>
+    |
+    <a href="{% url 'accounts:logout' %}">退出登录</a>
+  </p>
+
+  <h2>专项整治行动管理</h2>
+  <p>当前轮次：第 {{ current_round }} 轮；进行中的整治：{{ ongoing_count }} 项</p>
+
+  <div>
+    <button type="button" class="tab-btn active" data-tab="ongoing">进行中</button>
+    <button type="button" class="tab-btn" data-tab="done">已完成</button>
+  </div>
+
+  <div id="panel-ongoing" class="panel active">
+    <table>
+      <thead>
+        <tr>
+          <th>整治行动编号</th>
+          <th>平台名称</th>
+          <th>状态</th>
+          <th>开始轮次</th>
+          <th>进度</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in ongoing_rows %}
+          <tr>
+            <td>{{ row.行动编号 }}</td>
+            <td>{{ row.platform_name }}</td>
+            <td>{{ row.status_label }}</td>
+            <td>第 {{ row.start_round }} 轮</td>
+            <td>{{ row.progress }}</td>
+            <td><span class="op-wait">等待结束</span></td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="6">暂无进行中的整治记录。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div id="panel-done" class="panel">
+    <table>
+      <thead>
+        <tr>
+          <th>整治行动编号</th>
+          <th>平台名称</th>
+          <th>状态</th>
+          <th>开始轮次</th>
+          <th>进度</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in completed_rows %}
+          <tr>
+            <td>{{ row.行动编号 }}</td>
+            <td>{{ row.platform_name }}</td>
+            <td>{{ row.status_label }}</td>
+            <td>第 {{ row.start_round }} 轮</td>
+            <td>{{ row.progress }}</td>
+            <td>
+              <form method="post" action="{% url 'accounts:platform_spot_check_open' row.spot_check_id %}" style="display:inline;">
+                {% csrf_token %}
+                <button type="submit">查看抽查结果</button>
+              </form>
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="6">暂无已完成的整治记录。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+    document.querySelectorAll('.tab-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var tab = btn.getAttribute('data-tab');
+        document.querySelectorAll('.tab-btn').forEach(function (b) { b.classList.remove('active'); });
+        document.querySelectorAll('.panel').forEach(function (p) { p.classList.remove('active'); });
+        btn.classList.add('active');
+        document.getElementById('panel-' + tab).classList.add('active');
+      });
+    });
+  </script>
+</body>
+</html>

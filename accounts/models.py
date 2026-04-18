@@ -127,6 +127,26 @@ class RegulationAction(models.Model):
         ordering = ['-创建时间', '-id']
 
 
+class PlatformSpotCheckResult(models.Model):
+    """平台抽查结果（与专项行动正式行一对一；抽查结果页后续实现，先占位与是否查看）。"""
+
+    专项行动 = models.OneToOneField(
+        RegulationAction,
+        on_delete=models.CASCADE,
+        related_name='抽查结果',
+    )
+    行动编号 = models.CharField(max_length=32)
+    整治平台编号 = models.IntegerField()
+    整治平台名称 = models.CharField(max_length=64)
+    是否查看 = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = '平台抽查结果表'
+        verbose_name = '平台抽查结果表'
+        verbose_name_plural = '平台抽查结果表'
+        ordering = ['-id']
+
+
 class ProfitWeightConfig(models.Model):
     """平台利润计算：因子权重配置（管理员维护，按平台独立配置）。"""
 

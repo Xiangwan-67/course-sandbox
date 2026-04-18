@@ -14,7 +14,7 @@ from accounts.action_logger import action_log, regulator_action_log
 from accounts.db_retry import retry_on_db_locked
 from accounts.models import (
     WriterAccount, UserAccount, PlatformAccount, RegulatorAccount,
-    RegulationActionApplication, RegulationAction,
+    RegulationActionApplication, RegulationAction, PlatformSpotCheckResult,
     ProfitWeightConfig, PlatformCycleProfitRecord, PlatformGovernanceMeasure, PlatformPerformanceScheme, Article, Comment, PlatformSwitchSurvey,
     UserFollowWriter, UnfollowSurvey, ArticlePush, ArticlePushDetail,
     UserArticleLike, UserArticleCollect, UserArticleReadComplete,
@@ -105,7 +105,7 @@ def login_view(request):
         if regulator_user.密码 == password:
             request.session['account'] = account
             request.session['role'] = 'regulator'
-            return redirect('accounts:regulator_special_action')
+            return redirect('accounts:regulator_home')
         return render(request, 'accounts/login.html', {'error': '密码错误。'})
     except RegulatorAccount.DoesNotExist:
         pass
@@ -591,6 +591,119 @@ def platform_round_result(request):
         'target_round': target_round,
         'stats': stats,
         'config_review': config_review,
+    })
+
+
+def _regulator_progress_tables(current_round: int):
+    """拆分为进行中 / 已完成 表格数据；并同步过期状态、补建抽查结果行。"""
+    _sync_regulation_actions_finished(current_round)
+    ongoing_rows = []
+    completed_rows = []
+    qs = RegulationAction.objects.all().order_by('-开始轮次', '-id')
+    for ra in qs:
+        start = int(ra.开始轮次)
+        end = int(ra.结束轮次)
+        total = max(1, int(ra.整治持续轮次 or 1))
+        elapsed = _regulation_progress_elapsed(current_round, start, total)
+
+        if current_round > end:
+            spot = _ensure_spot_check_result(ra)
+            completed_rows.append({
+                '行动编号': ra.行动编号,
+                'platform_name': ra.整治平台名称,
+                'status_label': '已完成',
+                'start_round': start,
+                'progress': f'{total}/{total}轮',
+                'spot_check_id': spot.pk,
+            })
+            continue
+
+        if getattr(ra, '状态', None) != 'active':
+            continue
+
+        if current_round < start:
+            status_label = '待开始'
+            progress_str = f'0/{total}轮'
+        else:
+            status_label = '进行中'
+            progress_str = f'{elapsed}/{total}轮'
+
+        ongoing_rows.append({
+            '行动编号': ra.行动编号,
+            'platform_name': ra.整治平台名称,
+            'status_label': status_label,
+            'start_round': start,
+            'progress': progress_str,
+            'spot_check_id': None,
+        })
+
+    ongoing_count = RegulationAction.objects.filter(
+        状态='active',
+        开始轮次__lte=current_round,
+        结束轮次__gte=current_round,
+    ).count()
+
+    return {
+        'ongoing_rows': ongoing_rows,
+        'completed_rows': completed_rows,
+        'ongoing_count': ongoing_count,
+    }
+
+
+@ensure_csrf_cookie
+def regulator_home(request):
+    """监管机构主页：专项整治行动管理（进度窗口）。"""
+    account = request.session.get('account', '')
+    if not account or request.session.get('role') != 'regulator':
+        return redirect('accounts:login')
+
+    current_round = _get_current_round()
+    progress = _regulator_progress_tables(current_round)
+    return render(request, 'accounts/regulator_home.html', {
+        'name': account,
+        'current_round': current_round,
+        'ongoing_rows': progress['ongoing_rows'],
+        'completed_rows': progress['completed_rows'],
+        'ongoing_count': progress['ongoing_count'],
+    })
+
+
+@require_http_methods(['POST'])
+def platform_spot_check_open(request, pk: int):
+    """监管用户打开抽查结果：更新是否查看、记日志，跳转占位页。"""
+    account = request.session.get('account', '')
+    if not account or request.session.get('role') != 'regulator':
+        return redirect('accounts:login')
+
+    spot = PlatformSpotCheckResult.objects.filter(pk=pk).select_related('专项行动').first()
+    if not spot:
+        return redirect('accounts:regulator_home')
+
+    spot.是否查看 = True
+    spot.save(update_fields=['是否查看'])
+
+    current_round = _get_current_round()
+    regulator_action_log(
+        f"监管机构查看抽查结果 当前轮次：{current_round}，行动编号：{spot.行动编号}，平台：{spot.整治平台名称}"
+    )
+    return redirect('accounts:platform_spot_check_detail', pk=pk)
+
+
+@ensure_csrf_cookie
+@require_http_methods(['GET'])
+def platform_spot_check_detail(request, pk: int):
+    """平台抽查结果页（占位，后续实现具体内容）。"""
+    account = request.session.get('account', '')
+    if not account or request.session.get('role') != 'regulator':
+        return redirect('accounts:login')
+
+    spot = PlatformSpotCheckResult.objects.filter(pk=pk).first()
+    if not spot:
+        return redirect('accounts:regulator_home')
+
+    return render(request, 'accounts/platform_spot_check_detail.html', {
+        'name': account,
+        'spot': spot,
     })
 
 
@@ -1274,6 +1387,14 @@ def _all_platform_choices():
     return [{'id': 0, 'name': _platform_name(0)}, {'id': 1, 'name': _platform_name(1)}]
 
 
+def _sync_regulation_actions_finished(current_round: int):
+    """将已超过结束轮次且仍为 active 的专项行动标记为 finished。"""
+    RegulationAction.objects.filter(
+        状态='active',
+        结束轮次__lt=current_round,
+    ).update(状态='finished')
+
+
 def _is_platform_under_regulation(platform_id: int, current_round: int) -> bool:
     """某平台在当前轮次是否处于专项整治中。"""
     RegulationAction.objects.filter(
@@ -1287,6 +1408,26 @@ def _is_platform_under_regulation(platform_id: int, current_round: int) -> bool:
         结束轮次__gte=current_round,
         状态='active',
     ).exists()
+
+
+def _ensure_spot_check_result(reg_action: RegulationAction) -> PlatformSpotCheckResult:
+    """为专项行动行补建抽查结果记录（兼容历史数据）。"""
+    obj, _created = PlatformSpotCheckResult.objects.get_or_create(
+        专项行动=reg_action,
+        defaults={
+            '行动编号': reg_action.行动编号,
+            '整治平台编号': reg_action.整治平台编号,
+            '整治平台名称': reg_action.整治平台名称,
+            '是否查看': False,
+        },
+    )
+    return obj
+
+
+def _regulation_progress_elapsed(current_round: int, start_round: int, total_duration: int) -> int:
+    """已持续轮次（不超过总持续轮次）。"""
+    total_duration = max(1, int(total_duration or 1))
+    return min(max(0, int(current_round) - int(start_round)), total_duration)
 
 
 def _next_regulation_action_id() -> str:

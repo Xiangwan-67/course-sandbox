@@ -1,7 +1,7 @@
 from django.contrib import admin
 from .models import (
     WriterAccount, UserAccount, PlatformAccount, RegulatorAccount,
-    RegulationActionApplication, RegulationAction,
+    RegulationActionApplication, RegulationAction, PlatformSpotCheckResult,
     ProfitWeightConfig, PlatformCycleProfitRecord,
     PlatformGovernanceMeasure, PlatformPerformanceScheme,
     AccountHealthConfig, AccountHealthLevelConfig, WriterNoticeRead, WriterHealthScoreLog,
@@ -66,7 +66,7 @@ class RegulationActionApplicationAdmin(admin.ModelAdmin):
 
             for idx, pid in enumerate(platform_ids):
                 pname = platform_names[idx] if idx < len(platform_names) else f'平台{pid + 1}'
-                RegulationAction.objects.create(
+                ra = RegulationAction.objects.create(
                     行动编号=app.行动编号,
                     当前轮次=app.当前轮次,
                     整治平台编号=pid,
@@ -78,6 +78,13 @@ class RegulationActionApplicationAdmin(admin.ModelAdmin):
                     其他原因说明=app.其他原因说明,
                     状态='active',
                     申请记录=app,
+                )
+                PlatformSpotCheckResult.objects.create(
+                    专项行动=ra,
+                    行动编号=ra.行动编号,
+                    整治平台编号=ra.整治平台编号,
+                    整治平台名称=ra.整治平台名称,
+                    是否查看=False,
                 )
 
             regulator_action_log(
@@ -112,6 +119,14 @@ class RegulationActionAdmin(admin.ModelAdmin):
         '整治持续轮次', '开始轮次', '结束轮次', '整治原因', '状态', '创建时间',
     ]
     list_filter = ['状态', '整治平台编号', '当前轮次', '整治原因']
+
+
+@admin.register(PlatformSpotCheckResult)
+class PlatformSpotCheckResultAdmin(admin.ModelAdmin):
+    list_display = [
+        'id', '行动编号', '整治平台编号', '整治平台名称', '是否查看', '专项行动',
+    ]
+    list_filter = ['是否查看', '行动编号']
 
 
 @admin.register(ProfitWeightConfig)

@@ -6,6 +6,11 @@
   <title>监管机构 - 发起专项整治</title>
 </head>
 <body>
+  <p>
+    <a href="{% url 'accounts:regulator_home' %}">返回监管主页</a>
+    |
+    <a href="{% url 'accounts:logout' %}">退出登录</a>
+  </p>
   <h2>监管机构（{{ name }}）- 发起专项整治</h2>
   <p>当前轮次：{{ current_round }}</p>
 
@@ -89,10 +94,6 @@
       <div style="margin-top: 8px;">暂无申请记录。</div>
     {% endif %}
   </div>
-
-  <p style="margin-top: 20px;">
-    <a href="{% url 'accounts:logout' %}">退出登录</a>
-  </p>
 
   <script>
     function getCookie(name) {
