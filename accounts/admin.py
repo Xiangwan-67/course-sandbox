@@ -57,6 +57,7 @@ class AdminBaseConfigAdmin(admin.ModelAdmin):
     list_display = [
         'id', '自动巡查比例',
         '罚款轻微监管成本', '罚款基础监管成本', '罚款中等监管成本', '罚款严格监管成本',
+        '写作成本映射',
         '更新时间',
     ]
 
@@ -239,7 +240,7 @@ class WriterHealthScoreLogAdmin(admin.ModelAdmin):
 class PlatformPerformanceSchemeAdmin(admin.ModelAdmin):
     list_display = [
         'id', '平台', '生效轮次', '方案编号',
-        'w1_click', 'w2_finish', 'w3_collect', 'w4_satisfaction',
+        'w1_click', 'w2_finish', 'w3_collect',
         'status', '管理员确认账号', '管理员确认时间',
         '发布人账号', '创建时间',
     ]
@@ -453,8 +454,9 @@ class RevenuePenaltyConfigAdmin(admin.ModelAdmin):
 class ArticleRevenueSettlementAdmin(admin.ModelAdmin):
     list_display = [
         'id', 'platform_id', '写手账号', '文章', '轮次',
-        '点击量', '阅读完成量', '收藏量', '满意度均分',
-        'w1', 'w2', 'w3', 'w4',
+        '点击量', '阅读完成量', '收藏量', '写作成本数值', '写作成本系数',
+        '因子_点击量', '因子_阅读完成', '因子_收藏', '因子_写作成本',
+        'w1', 'w2', 'w3',
         '原始收益', 'penalty_applied', 'penalty_coefficient', '最终收益', '结算时间',
     ]
     list_filter = ['platform_id', '轮次', 'penalty_applied']

@@ -278,6 +278,11 @@ class RegulatorFineRecord(models.Model):
         ordering = ['-创建时间', '-id']
 
 
+def default_writing_cost_map():
+    """内容相关度档位 1～5 → 写作成本数值（全局一份，管理员可改）。"""
+    return {'1': 1, '2': 2, '3': 3, '4': 4, '5': 5}
+
+
 class AdminBaseConfig(models.Model):
     """管理员基础配置（单行，id=1）：自动巡查比例、罚款档次对应监管成本输入值等。"""
 
@@ -286,6 +291,8 @@ class AdminBaseConfig(models.Model):
     罚款基础监管成本 = models.DecimalField(max_digits=18, decimal_places=6, default=Decimal('-2'))
     罚款中等监管成本 = models.DecimalField(max_digits=18, decimal_places=6, default=Decimal('-4'))
     罚款严格监管成本 = models.DecimalField(max_digits=18, decimal_places=6, default=Decimal('-8'))
+    # 键为内容相关度档位字符串 "1"～"5"，值为该档位写作成本数值（结算时按全局「写作成本系数」扣除，默认 −1）
+    写作成本映射 = models.JSONField(default=default_writing_cost_map, blank=True)
     更新时间 = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -509,7 +516,8 @@ class WriterHealthScoreLog(models.Model):
 class PlatformPerformanceScheme(models.Model):
     """平台绩效规则（方案）选择记录。
 
-    说明：该方案后续将联动写手文章报酬计算函数；当前先做“可选方案 + 记录生效轮次 + 回显”。
+    仅 w1～w3：点击 / 阅读完成 / 收藏量权重，须满足 w1+w2+w3=1，均为非负。
+    写作成本由写手端内容相关度档位映射，与绩效权重无关。
     """
 
     SCHEME_CODE_CHOICES = [
@@ -533,7 +541,6 @@ class PlatformPerformanceScheme(models.Model):
     w1_click = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     w2_finish = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     w3_collect = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
-    w4_satisfaction = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True, default=0)
     status = models.CharField(max_length=20, choices=SCHEME_STATUS_CHOICES, default='pending')
     管理员确认账号 = models.CharField(max_length=100, blank=True)
     管理员确认时间 = models.DateTimeField(null=True, blank=True)
@@ -878,12 +885,20 @@ class ArticleRevenueSettlement(models.Model):
     点击量 = models.PositiveIntegerField(default=0)
     阅读完成量 = models.PositiveIntegerField(default=0)
     收藏量 = models.PositiveIntegerField(default=0)
-    满意度均分 = models.DecimalField(max_digits=10, decimal_places=4, default=0)
+    # 由写手内容相关度档位查 AdminBaseConfig.写作成本映射 得到的数值
+    写作成本数值 = models.DecimalField(max_digits=10, decimal_places=4, default=0)
+    # 与绩效无关；默认 −1 表示「原始收益 = 绩效收益 + 系数×写作成本数值」即减去全额映射成本
+    写作成本系数 = models.DecimalField(max_digits=10, decimal_places=4, default=Decimal('-1'))
 
     w1 = models.DecimalField(max_digits=10, decimal_places=4, default=0)
     w2 = models.DecimalField(max_digits=10, decimal_places=4, default=0)
     w3 = models.DecimalField(max_digits=10, decimal_places=4, default=0)
-    w4 = models.DecimalField(max_digits=10, decimal_places=4, default=0)
+
+    # 各因子对应金额（写作成本项为负值）；四者之和等于原始收益
+    因子_点击量 = models.DecimalField(max_digits=18, decimal_places=6, default=0)
+    因子_阅读完成 = models.DecimalField(max_digits=18, decimal_places=6, default=0)
+    因子_收藏 = models.DecimalField(max_digits=18, decimal_places=6, default=0)
+    因子_写作成本 = models.DecimalField(max_digits=18, decimal_places=6, default=0)
 
     原始收益 = models.DecimalField(max_digits=18, decimal_places=6, default=0)
     penalty_applied = models.BooleanField(default=False)

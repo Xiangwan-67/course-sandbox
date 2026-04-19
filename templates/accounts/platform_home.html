@@ -172,14 +172,20 @@
   </div>
 
   <div style="margin-top: 16px; padding: 12px; border: 1px solid #ddd;">
-    <strong>平台绩效（占位）</strong>
+    <strong>平台绩效</strong>
     <div style="margin-top: 6px;">
       <a href="{% url 'accounts:platform_performance' %}">进入平台绩效</a>
     </div>
     <div style="margin-top: 10px;">
       <strong>当前生效方案：</strong>
       {% if current_performance_scheme %}
-        <span>{{ current_performance_scheme.get_方案编号_display }}（生效轮次：{{ current_performance_scheme.生效轮次 }}）</span>
+        <div style="margin-top: 6px; color: #333;">
+          生效轮次：第 <strong>{{ current_performance_scheme.生效轮次 }}</strong> 轮起；
+          绩效权重（须满足 w1+w2+w3=1）：
+          w1 点击 = {% if current_performance_scheme.w1_click is not None %}{{ current_performance_scheme.w1_click }}{% else %}—{% endif %}，
+          w2 阅读完成 = {% if current_performance_scheme.w2_finish is not None %}{{ current_performance_scheme.w2_finish }}{% else %}—{% endif %}，
+          w3 收藏 = {% if current_performance_scheme.w3_collect is not None %}{{ current_performance_scheme.w3_collect }}{% else %}—{% endif %}
+        </div>
       {% else %}
         <span>暂无</span>
       {% endif %}

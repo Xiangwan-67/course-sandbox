@@ -54,6 +54,8 @@
         .article-ranking-table .title-cell { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .notice-link { position: relative; display: inline-block; padding-right: 10px; }
         .notice-dot { position: absolute; top: -4px; right: -2px; width: 10px; height: 10px; background: #d00; border-radius: 50%; }
+        .my-prev-wrap { overflow-x: auto; max-width: 100%; }
+        .my-prev-table { min-width: 920px; }
     </style>
 </head>
 <body>
@@ -120,6 +122,53 @@
                 </div>
             </div>
         </div>
+    </div>
+
+    <div class="rank-box" style="margin-top: 1.5rem; max-width: 100%;">
+        <h3>【我的上一轮表现】</h3>
+        {% if prev_round < 1 %}
+            <p style="color:#666;">当前为第1轮，无上一轮个人数据。</p>
+        {% elif not my_prev_round_rows %}
+            <p style="color:#666;">上一轮您暂无已发布文章。</p>
+        {% else %}
+            <p style="margin:0 0 0.5rem 0; color:#666; font-size:0.9rem;">第 {{ prev_round }} 轮您发布的文章：表现数据与结算明细（结算在结束本轮后生效）。</p>
+            <div class="my-prev-wrap">
+            <table class="rank-table my-prev-table" style="font-size: 0.85rem;">
+                <thead>
+                    <tr>
+                        <th>标题</th>
+                        <th class="num">点击</th>
+                        <th class="num">点击收益</th>
+                        <th class="num">阅读完成</th>
+                        <th class="num">阅读完成收益</th>
+                        <th class="num">收藏</th>
+                        <th class="num">收藏收益</th>
+                        <th class="num">写作成本</th>
+                        <th class="num">收益扣除</th>
+                        <th class="num">最终收益</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in my_prev_round_rows %}
+                    {% with a=row.article st=row.settlement %}
+                    <tr>
+                        <td class="title-cell" title="{{ a.标题 }}">{{ a.标题|truncatechars:24 }}</td>
+                        <td class="num">{{ a.点击量 }}</td>
+                        <td class="num">{% if st %}{{ st.因子_点击量|floatformat:6 }}{% else %}—{% endif %}</td>
+                        <td class="num">{{ a.阅读完成量 }}</td>
+                        <td class="num">{% if st %}{{ st.因子_阅读完成|floatformat:6 }}{% else %}—{% endif %}</td>
+                        <td class="num">{{ a.收藏量 }}</td>
+                        <td class="num">{% if st %}{{ st.因子_收藏|floatformat:6 }}{% else %}—{% endif %}</td>
+                        <td class="num">{% if st %}{{ st.因子_写作成本|floatformat:6 }}{% else %}—{% endif %}</td>
+                        <td class="num">{% if st and st.penalty_applied %}{{ row.penalty_deduction|floatformat:6 }}{% elif st %}{% else %}—{% endif %}</td>
+                        <td class="num">{% if st %}{{ st.最终收益|floatformat:6 }}{% else %}—{% endif %}</td>
+                    </tr>
+                    {% endwith %}
+                    {% endfor %}
+                </tbody>
+            </table>
+            </div>
+        {% endif %}
     </div>
 
     <div class="rankings" id="writer_rankings">

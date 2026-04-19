@@ -1,48 +1,73 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>历史文章列表 - 标题党沙盘</title>
-    <style>
-        body { font-family: "Microsoft YaHei", sans-serif; margin: 2rem; }
-        a { color: #06c; }
-        .top-row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.5rem; }
-        .history-table { width: 100%; max-width: 800px; border-collapse: collapse; border: 1px solid #ddd; }
-        .history-table th, .history-table td { border: 1px solid #ddd; padding: 0.5rem 0.75rem; text-align: left; }
-        .history-table th { background: #f5f5f5; }
-        .history-table .num { text-align: right; }
-        .history-table tbody tr:hover { background: #fafafa; }
-        .history-table a { text-decoration: none; }
-        .history-table a:hover { text-decoration: underline; }
-        .title-cell { max-width: 320px; }
-    </style>
-</head>
-<body>
-    <div class="top-row">
-        <h2 style="margin:0;">写手{{ name }} - 历史文章列表</h2>
-        <a href="{% url 'accounts:writer_home' %}">返回写手首页</a>
-    </div>
-    <p style="color:#666; margin-bottom:1rem;">按模拟轮次从小到大排列，轮次越小越靠上。</p>
-    <table class="history-table">
-        <thead>
-            <tr>
-                <th>文章标题</th>
-                <th class="num">所属轮次</th>
-                <th class="num">报酬</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for a in articles %}
-            <tr>
-                <td class="title-cell"><a href="{% url 'accounts:article_detail' a.pk %}">{{ a.标题|default:"(无标题)"|truncatechars:60 }}</a></td>
-                <td class="num">{{ a.轮次 }}</td>
-                <td class="num">{{ a.报酬 }}</td>
-            </tr>
-            {% empty %}
-            <tr><td colspan="3">暂无历史文章</td></tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</body>
-</html>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>历史文章列表 - 标题党沙盘</title>
+    <style>
+        body { font-family: "Microsoft YaHei", sans-serif; margin: 2rem; }
+        a { color: #06c; }
+        .top-row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.5rem; }
+        .history-wrap { width: 100%; overflow-x: auto; }
+        .history-table { width: 100%; min-width: 1200px; border-collapse: collapse; border: 1px solid #ddd; font-size: 0.88rem; }
+        .history-table th, .history-table td { border: 1px solid #ddd; padding: 0.45rem 0.5rem; text-align: left; vertical-align: middle; }
+        .history-table th { background: #f5f5f5; white-space: nowrap; }
+        .history-table .num { text-align: right; white-space: nowrap; }
+        .history-table tbody tr:hover { background: #fafafa; }
+        .history-table a { text-decoration: none; }
+        .history-table a:hover { text-decoration: underline; }
+        .title-cell { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    </style>
+</head>
+<body>
+    <div class="top-row">
+        <h2 style="margin:0;">写手{{ name }} - 历史文章列表</h2>
+        <a href="{% url 'accounts:writer_home' %}">返回写手首页</a>
+    </div>
+    <p style="color:#666; margin-bottom:1rem;">按模拟轮次从小到大排列；各列数值在「结束本轮」结算后显示。</p>
+    <div class="history-wrap">
+    <table class="history-table">
+        <thead>
+            <tr>
+                <th>文章标题</th>
+                <th class="num">所属轮次</th>
+                <th class="num">标题夸张度</th>
+                <th class="num">内容相关度</th>
+                <th class="num">点击</th>
+                <th class="num">点击收益</th>
+                <th class="num">阅读完成</th>
+                <th class="num">阅读完成收益</th>
+                <th class="num">收藏</th>
+                <th class="num">收藏收益</th>
+                <th class="num">写作成本</th>
+                <th class="num">收益扣除</th>
+                <th class="num">最终收益</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in history_rows %}
+            {% with a=row.article st=row.settlement %}
+            <tr>
+                <td class="title-cell" title="{{ a.标题|default:'' }}"><a href="{% url 'accounts:article_detail' a.pk %}">{{ a.标题|default:"(无标题)"|truncatechars:40 }}</a></td>
+                <td class="num">{{ a.轮次 }}</td>
+                <td class="num">{% if a.标题夸张度_校准值 is not None %}{{ a.标题夸张度_校准值 }}{% else %}—{% endif %}</td>
+                <td class="num">{% if a.内容相关度_校准值 is not None %}{{ a.内容相关度_校准值 }}{% else %}—{% endif %}</td>
+                <td class="num">{{ a.点击量 }}</td>
+                <td class="num">{% if st %}{{ st.因子_点击量|floatformat:6 }}{% else %}—{% endif %}</td>
+                <td class="num">{{ a.阅读完成量 }}</td>
+                <td class="num">{% if st %}{{ st.因子_阅读完成|floatformat:6 }}{% else %}—{% endif %}</td>
+                <td class="num">{{ a.收藏量 }}</td>
+                <td class="num">{% if st %}{{ st.因子_收藏|floatformat:6 }}{% else %}—{% endif %}</td>
+                <td class="num">{% if st %}{{ st.因子_写作成本|floatformat:6 }}{% else %}—{% endif %}</td>
+                <td class="num">{% if st and st.penalty_applied %}{{ row.penalty_deduction|floatformat:6 }}{% elif st %}{% else %}—{% endif %}</td>
+                <td class="num">{% if st %}{{ st.最终收益|floatformat:6 }}{% else %}—{% endif %}</td>
+            </tr>
+            {% endwith %}
+            {% empty %}
+            <tr><td colspan="13">暂无历史文章</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</body>
+</html>

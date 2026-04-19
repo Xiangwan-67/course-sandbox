@@ -218,7 +218,7 @@ def approve_platform_performance_scheme_queryset(request, queryset) -> None:
         action_log(
             f"管理员确认绩效方案生效 | 管理员={admin_account} 方案ID={scheme.pk} "
             f"平台={scheme.平台} 生效轮次={scheme.生效轮次} "
-            f"w1={scheme.w1_click} w2={scheme.w2_finish} w3={scheme.w3_collect} w4={scheme.w4_satisfaction}"
+            f"w1={scheme.w1_click} w2={scheme.w2_finish} w3={scheme.w3_collect}"
         )
 
 

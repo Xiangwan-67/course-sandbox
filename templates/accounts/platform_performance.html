@@ -1,106 +1,144 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>{{ platform_name }} - 绩效规则</title>
-</head>
-<body>
-  <h2>{{ platform_name }} - 绩效规则（平台负责人：{{ name }}）</h2>
-  <p>当前轮次：{{ current_round }}</p>
-
-  <div style="margin-top: 10px; padding: 12px; border: 1px solid #ddd;">
-    <h3>当前生效方案</h3>
-    {% if active_scheme %}
-      <div style="padding: 8px; background: #f0fff0; border: 1px solid #cfc;">
-        <p><strong>方案 ID：{{ active_scheme.pk }}</strong> ｜ 生效轮次：{{ active_scheme.生效轮次 }}</p>
-        <ul>
-          <li>w1（点击量权重）：{{ active_scheme.w1_click }}</li>
-          <li>w2（阅读完成权重）：{{ active_scheme.w2_finish }}</li>
-          <li>w3（收藏量权重）：{{ active_scheme.w3_collect }}</li>
-          <li>w4（满意度权重）：{{ active_scheme.w4_satisfaction }}</li>
-        </ul>
-        <p style="color: #888;">确认人：{{ active_scheme.管理员确认账号 }} ｜ 确认时间：{{ active_scheme.管理员确认时间 }}</p>
-      </div>
-    {% else %}
-      <p style="color: gray;">暂无生效方案，请提交后等待管理员审核。</p>
-    {% endif %}
-  </div>
-
-  {% if pending_scheme %}
-  <div style="margin-top: 16px; padding: 12px; border: 1px solid #ffd;">
-    <h3 style="color: #c90;">待审核方案</h3>
-    <div style="padding: 8px; background: #fffff0; border: 1px solid #eea;">
-      <p><strong>方案 ID：{{ pending_scheme.pk }}</strong> ｜ 预计生效轮次：{{ pending_scheme.生效轮次 }}</p>
-      <ul>
-        <li>w1（点击量权重）：{{ pending_scheme.w1_click }}</li>
-        <li>w2（阅读完成权重）：{{ pending_scheme.w2_finish }}</li>
-        <li>w3（收藏量权重）：{{ pending_scheme.w3_collect }}</li>
-        <li>w4（满意度权重）：{{ pending_scheme.w4_satisfaction }}</li>
-      </ul>
-      <p style="color: #c90;">状态：待管理员审核 ｜ 提交人：{{ pending_scheme.发布人账号 }} ｜ 提交时间：{{ pending_scheme.创建时间 }}</p>
-    </div>
-  </div>
-  {% endif %}
-
-  <div style="margin-top: 20px; padding: 12px; border: 1px solid #ddd;">
-    <h3>提交新方案</h3>
-    <p style="color: #666; margin-bottom: 10px;">
-      配置写手报酬权重（w1~w4），提交后需管理员在后台审核通过方可生效。<br/>
-      写手收益公式：收益 = w1×点击量 + w2×阅读完成量 + w3×收藏量 + w4×满意度均分
-    </p>
-    <form id="submitForm">
-      <div style="margin-bottom: 8px;">
-        <label style="display: inline-block; width: 200px;">w1 — 点击量权重：</label>
-        <input type="number" id="w1" name="w1" step="0.01" value="{{ active_scheme.w1_click|default:'0.25' }}" min="0" style="width: 80px;" />
-      </div>
-      <div style="margin-bottom: 8px;">
-        <label style="display: inline-block; width: 200px;">w2 — 阅读完成权重：</label>
-        <input type="number" id="w2" name="w2" step="0.01" value="{{ active_scheme.w2_finish|default:'0.25' }}" min="0" style="width: 80px;" />
-      </div>
-      <div style="margin-bottom: 8px;">
-        <label style="display: inline-block; width: 200px;">w3 — 收藏量权重：</label>
-        <input type="number" id="w3" name="w3" step="0.01" value="{{ active_scheme.w3_collect|default:'0.25' }}" min="0" style="width: 80px;" />
-      </div>
-      <div style="margin-bottom: 8px;">
-        <label style="display: inline-block; width: 200px;">w4 — 满意度权重：</label>
-        <input type="number" id="w4" name="w4" step="0.01" value="{{ active_scheme.w4_satisfaction|default:'0.25' }}" min="0" style="width: 80px;" />
-      </div>
-      <button type="button" onclick="submitScheme()" style="margin-top: 8px;">提交待审核</button>
-    </form>
-  </div>
-
-  <p style="margin-top: 20px;">
-    <a href="{% url 'accounts:platform_governance' %}">返回治理总览</a>
-    |
-    <a href="{% url 'accounts:platform_home' %}">返回平台首页</a>
-    |
-    <a href="{% url 'accounts:logout' %}">退出登录</a>
-  </p>
-
-  <script>
-    async function submitScheme() {
-      const w1 = document.getElementById('w1').value;
-      const w2 = document.getElementById('w2').value;
-      const w3 = document.getElementById('w3').value;
-      const w4 = document.getElementById('w4').value;
-      const form = new FormData();
-      form.append('w1', w1);
-      form.append('w2', w2);
-      form.append('w3', w3);
-      form.append('w4', w4);
-      const res = await fetch("{% url 'accounts:platform_performance_submit' %}", {
-        method: 'POST',
-        body: form
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || '提交失败');
-        return;
-      }
-      alert('方案已提交（ID: ' + data.scheme_id + '），预计第 ' + data.effective_round + ' 轮生效，请等待管理员审核。');
-      window.location.reload();
-    }
-  </script>
-</body>
-</html>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{ platform_name }} - 绩效规则</title>
+</head>
+<body>
+  <h2>{{ platform_name }} - 绩效规则（平台负责人：{{ name }}）</h2>
+  <p>当前轮次：{{ current_round }}</p>
+
+  <div style="margin-top: 10px; padding: 12px; border: 1px solid #ddd;">
+    <h3>当前生效方案</h3>
+    {% if active_scheme %}
+      <div style="padding: 8px; background: #f0fff0; border: 1px solid #cfc;">
+        <p><strong>方案 ID：{{ active_scheme.pk }}</strong> ｜ 生效轮次：{{ active_scheme.生效轮次 }}</p>
+        <ul>
+          <li>w1（点击量权重）：{{ active_scheme.w1_click }}</li>
+          <li>w2（阅读完成权重）：{{ active_scheme.w2_finish }}</li>
+          <li>w3（收藏量权重）：{{ active_scheme.w3_collect }}</li>
+        </ul>
+        <p style="color:#666; font-size:13px;">三项权重之和须为 1；写作成本由写手选题/正文相关度决定，与绩效无关。</p>
+        <p style="color: #888;">确认人：{{ active_scheme.管理员确认账号 }} ｜ 确认时间：{{ active_scheme.管理员确认时间 }}</p>
+      </div>
+    {% else %}
+      <p style="color: gray;">暂无生效方案，请提交后等待管理员审核。</p>
+    {% endif %}
+  </div>
+
+  {% if pending_scheme %}
+  <div style="margin-top: 16px; padding: 12px; border: 1px solid #ffd;">
+    <h3 style="color: #c90;">待审核方案</h3>
+    <div style="padding: 8px; background: #fffff0; border: 1px solid #eea;">
+      <p><strong>方案 ID：{{ pending_scheme.pk }}</strong> ｜ 预计生效轮次：{{ pending_scheme.生效轮次 }}</p>
+      <ul>
+        <li>w1（点击量权重）：{{ pending_scheme.w1_click }}</li>
+        <li>w2（阅读完成权重）：{{ pending_scheme.w2_finish }}</li>
+        <li>w3（收藏量权重）：{{ pending_scheme.w3_collect }}</li>
+      </ul>
+      <p style="color: #c90;">状态：待管理员审核 ｜ 提交人：{{ pending_scheme.发布人账号 }} ｜ 提交时间：{{ pending_scheme.创建时间 }}</p>
+    </div>
+  </div>
+  {% endif %}
+
+  <div style="margin-top: 20px; padding: 12px; border: 1px solid #ddd;">
+    <h3>提交新方案</h3>
+    <p style="color: #666; margin-bottom: 10px;">
+      仅配置三项绩效权重 <strong>w1、w2、w3</strong>（点击 / 阅读完成 / 收藏），须满足 <strong>w1+w2+w3=1</strong>，且均 ≥0。<br/>
+      写手端：<strong>绩效收益</strong> = w1×点击量 + w2×阅读完成量 + w3×收藏量；<strong>写作成本</strong>由写手选择的内容相关度档位查管理员全局映射得到；<strong>收益惩罚前总收益</strong> = 绩效收益 + k×写作成本数值（系统默认 <strong>k=−1</strong>，即减去写作成本）。若触发收益惩罚再乘 β。
+    </p>
+    <form id="submitForm">
+      <div style="margin-bottom: 8px;">
+        <label style="display: inline-block; width: 200px;">w1 — 点击量权重：</label>
+        <input type="number" id="w1" name="w1" step="0.0001" value="{{ active_scheme.w1_click|default:'0.3333' }}" min="0" max="1" style="width: 90px;" />
+      </div>
+      <div style="margin-bottom: 8px;">
+        <label style="display: inline-block; width: 200px;">w2 — 阅读完成权重：</label>
+        <input type="number" id="w2" name="w2" step="0.0001" value="{{ active_scheme.w2_finish|default:'0.3333' }}" min="0" max="1" style="width: 90px;" />
+      </div>
+      <div style="margin-bottom: 8px;">
+        <label style="display: inline-block; width: 200px;">w3 — 收藏量权重：</label>
+        <input type="number" id="w3" name="w3" step="0.0001" value="{{ active_scheme.w3_collect|default:'0.3334' }}" min="0" max="1" style="width: 90px;" />
+      </div>
+      <p id="wsum_hint" style="color:#888; font-size:13px; margin:4px 0;">当前三项之和：<span id="wsum_val">—</span>（应为 1）</p>
+      <button type="button" onclick="submitScheme()" style="margin-top: 8px;">提交待审核</button>
+    </form>
+  </div>
+
+  <p style="margin-top: 20px;">
+    <a href="{% url 'accounts:platform_governance' %}">返回治理总览</a>
+    |
+    <a href="{% url 'accounts:platform_home' %}">返回平台首页</a>
+    |
+    <a href="{% url 'accounts:logout' %}">退出登录</a>
+  </p>
+
+  <script>
+    function updateWsum() {
+      var a = parseFloat(document.getElementById('w1').value);
+      var b = parseFloat(document.getElementById('w2').value);
+      var c = parseFloat(document.getElementById('w3').value);
+      if (isNaN(a) || isNaN(b) || isNaN(c)) {
+        document.getElementById('wsum_val').textContent = '—';
+        return;
+      }
+      document.getElementById('wsum_val').textContent = (a + b + c).toFixed(4);
+    }
+    ['w1','w2','w3'].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.addEventListener('input', updateWsum);
+    });
+    updateWsum();
+
+    async function submitScheme() {
+      const w1 = document.getElementById('w1').value;
+      const w2 = document.getElementById('w2').value;
+      const w3 = document.getElementById('w3').value;
+      var a = parseFloat(w1), b = parseFloat(w2), c = parseFloat(w3);
+      if (isNaN(a) || isNaN(b) || isNaN(c)) {
+        alert('请填写有效的三项权重。');
+        return;
+      }
+      if (a < 0 || b < 0 || c < 0) {
+        alert('权重不能为负数。');
+        return;
+      }
+      if (Math.abs(a + b + c - 1) > 0.001) {
+        alert('三项权重之和必须等于 1（当前为 ' + (a + b + c).toFixed(4) + '）。');
+        return;
+      }
+      const form = new FormData();
+      form.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+      form.append('w1', w1);
+      form.append('w2', w2);
+      form.append('w3', w3);
+      try {
+        const res = await fetch("{% url 'accounts:platform_performance_submit' %}", {
+          method: 'POST',
+          body: form,
+          headers: { 'X-CSRFToken': '{{ csrf_token }}' },
+          credentials: 'same-origin',
+        });
+        const ct = (res.headers.get('content-type') || '');
+        let data = {};
+        if (ct.indexOf('application/json') !== -1) {
+          data = await res.json();
+        } else {
+          const text = await res.text();
+          alert('提交失败（HTTP ' + res.status + '）：' + (text ? text.slice(0, 200) : '非 JSON 响应'));
+          return;
+        }
+        if (!res.ok) {
+          alert(data.error || ('提交失败（HTTP ' + res.status + '）'));
+          return;
+        }
+        alert('方案已提交（ID: ' + data.scheme_id + '），预计第 ' + data.effective_round + ' 轮生效，请等待管理员审核。');
+        window.location.reload();
+      } catch (e) {
+        alert('提交失败：' + (e && e.message ? e.message : '网络异常'));
+      }
+    }
+  </script>
+</body>
+</html>

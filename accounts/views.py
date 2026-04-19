@@ -143,12 +143,30 @@ def writer_home(request):
         WriterAccount.objects.filter(所属平台=writer_platform).order_by('-粉丝数')
     )
     has_unread = WriterGovernanceNotice.objects.filter(写手账号=account, 是否已读=False).exists()
+
+    my_prev_round_rows = []
+    if prev_round >= 1:
+        for a in (
+            Article.objects.filter(写手账号=account, 轮次=prev_round)
+            .order_by('-点击量', '-id')
+        ):
+            st = ArticleRevenueSettlement.objects.filter(文章=a, 轮次=prev_round).first()
+            penalty_deduction = None
+            if st and st.penalty_applied:
+                penalty_deduction = st.原始收益 - st.最终收益
+            my_prev_round_rows.append({
+                'article': a,
+                'settlement': st,
+                'penalty_deduction': penalty_deduction,
+            })
+
     return render(request, 'accounts/writer_home.html', {
         'name': account,
         'article_ranking': article_ranking,
         'account_ranking': account_ranking,
         'prev_round': prev_round,
         'has_unread_notice': has_unread,
+        'my_prev_round_rows': my_prev_round_rows,
     })
 
 
@@ -199,12 +217,20 @@ def writer_article_history(request):
     account = request.session.get('account', '')
     if not account or request.session.get('role') != 'writer':
         return redirect('accounts:login')
-    articles = list(
-        Article.objects.filter(写手账号=account).order_by('轮次', '创建时间')
-    )
+    history_rows = []
+    for a in Article.objects.filter(写手账号=account).order_by('轮次', '创建时间'):
+        st = ArticleRevenueSettlement.objects.filter(文章=a, 轮次=a.轮次).first()
+        penalty_deduction = None
+        if st and st.penalty_applied:
+            penalty_deduction = st.原始收益 - st.最终收益
+        history_rows.append({
+            'article': a,
+            'settlement': st,
+            'penalty_deduction': penalty_deduction,
+        })
     return render(request, 'accounts/writer_article_history.html', {
         'name': account,
-        'articles': articles,
+        'history_rows': history_rows,
     })
 
 
@@ -314,8 +340,10 @@ def platform_home(request):
     financial_analysis = "财务分析功能待接入（后续由大模型生成）"
 
     # 治理总览区：当前生效功能包 + 参数摘要 + 上轮关键结果
+    # 「当前生效方案」展示与绩效详情页一致：取该平台 status=active 的最新一条（按生效轮次）。
+    # 结算时实际采用的权重仍由 _settle_article_revenue 内 生效轮次__lte=轮次 筛选，二者语义不同。
     current_performance_scheme = (
-        PlatformPerformanceScheme.objects.filter(平台=platform_id, 生效轮次__lte=current_round, status='active')
+        PlatformPerformanceScheme.objects.filter(平台=platform_id, status='active')
         .order_by('-生效轮次', '-id')
         .first()
     )
@@ -369,7 +397,7 @@ def platform_home(request):
             if current_performance_scheme:
                 summary = (
                     f"w1={current_performance_scheme.w1_click}, w2={current_performance_scheme.w2_finish}, "
-                    f"w3={current_performance_scheme.w3_collect}, w4={current_performance_scheme.w4_satisfaction}"
+                    f"w3={current_performance_scheme.w3_collect}（和为 1）"
                 )
             else:
                 summary = "暂无生效方案"
@@ -556,7 +584,7 @@ def platform_round_result(request):
                 .first()
             )
             if cfg:
-                summary = f"w1={cfg.w1_click}, w2={cfg.w2_finish}, w3={cfg.w3_collect}, w4={cfg.w4_satisfaction}"
+                summary = f"w1={cfg.w1_click}, w2={cfg.w2_finish}, w3={cfg.w3_collect}（和为 1）"
         config_review.append({
             'name': m_name,
             'type': m_type,
@@ -1494,8 +1522,9 @@ def platform_revenue_penalty_save(request):
     return JsonResponse({'ok': True, 'config_id': cfg.pk})
 
 
+@ensure_csrf_cookie
 def platform_performance(request):
-    """平台绩效：展示当前生效方案、待审核方案，提供 w1-w4 输入表单。"""
+    """平台绩效：展示当前生效方案、待审核方案，提供 w1～w3 输入表单（和为 1）。"""
     account = request.session.get('account', '')
     if not account or request.session.get('role') != 'platform':
         return redirect('accounts:login')
@@ -1532,39 +1561,39 @@ def platform_performance_apply(request):
 
 @require_http_methods(['POST'])
 def platform_performance_submit(request):
-    """提交绩效方案：平台输入 w1-w4 权重，状态为 pending，等待管理员审核。"""
+    """提交绩效方案：平台输入 w1～w3（须和为 1），状态为 pending，等待管理员审核。"""
     account = request.session.get('account', '')
     if not account or request.session.get('role') != 'platform':
         return JsonResponse({'error': '未登录或非平台角色'}, status=403)
     platform_user = PlatformAccount.objects.filter(账号=account).first()
     platform_id = getattr(platform_user, '所属平台', 0) if platform_user else 0
     try:
-        w1 = Decimal(request.POST.get('w1', '0.25'))
-        w2 = Decimal(request.POST.get('w2', '0.25'))
-        w3 = Decimal(request.POST.get('w3', '0.25'))
-        w4 = Decimal(request.POST.get('w4', '0.25'))
+        w1 = Decimal(request.POST.get('w1', '0.333333'))
+        w2 = Decimal(request.POST.get('w2', '0.333333'))
+        w3 = Decimal(request.POST.get('w3', '0.333334'))
     except Exception:
         return JsonResponse({'error': '权重参数格式错误'}, status=400)
-    total = w1 + w2 + w3 + w4
-    if total <= 0:
-        return JsonResponse({'error': '权重之和必须大于 0'}, status=400)
+    if w1 < 0 or w2 < 0 or w3 < 0:
+        return JsonResponse({'error': '权重不能为负数'}, status=400)
+    _sum_tol = Decimal('0.001')
+    if abs(w1 + w2 + w3 - Decimal('1')) > _sum_tol:
+        return JsonResponse({'error': '三项权重之和必须等于 1'}, status=400)
     round_num = _get_current_round()
     effective_round = round_num + 1
     rec = PlatformPerformanceScheme.objects.create(
         平台=platform_id,
         生效轮次=effective_round,
         方案编号='S1_balanced',
-        方案内容={'w1': str(w1), 'w2': str(w2), 'w3': str(w3), 'w4': str(w4)},
+        方案内容={'w1': str(w1), 'w2': str(w2), 'w3': str(w3)},
         发布人账号=account,
         w1_click=w1,
         w2_finish=w2,
         w3_collect=w3,
-        w4_satisfaction=w4,
         status='pending',
     )
     action_log(
         f"平台 {platform_id} 提交绩效方案 scheme_id={rec.pk} "
-        f"w1={w1} w2={w2} w3={w3} w4={w4} status=pending "
+        f"w1={w1} w2={w2} w3={w3} status=pending "
         f"生效轮次={effective_round} 操作人={account}"
     )
     return JsonResponse({'ok': True, 'scheme_id': rec.pk, 'effective_round': effective_round})
@@ -1689,7 +1718,9 @@ def _settle_article_revenue(platform_id: int, round_num: int):
     """收益结算：遍历本轮该平台所有文章，计算原始收益，若为标题党且启用了收益惩罚则乘以 β。
 
     公式：
-        原始收益 = w1×点击量 + w2×阅读完成量 + w3×收藏量 + w4×满意度均分
+        绩效收益 = w1×点击量 + w2×阅读完成量 + w3×收藏量（w1+w2+w3=1，由平台绩效规则）
+        写作成本数值由写手内容相关度档位查 AdminBaseConfig.写作成本映射（与绩效无关）
+        原始收益 = 绩效收益 + 写作成本系数×写作成本数值（默认系数 −1，即减去映射成本）
         最终收益 = 原始收益 × β（若标题党且启用惩罚），否则 = 原始收益
 
     由 end_round 结算流程调用。
@@ -1697,6 +1728,10 @@ def _settle_article_revenue(platform_id: int, round_num: int):
     from accounts.models import (
         Article, PlatformPerformanceScheme, RevenuePenaltyConfig,
         ArticleRevenueSettlement, WriterAccount,
+    )
+    from accounts.writing_cost import (
+        get_writing_cost_value_for_relevance,
+        WRITING_COST_COEFFICIENT_DEFAULT,
     )
 
     # 同轮重复结束本轮时先清旧明细，避免 ArticleRevenueSettlement 重复行
@@ -1708,10 +1743,14 @@ def _settle_article_revenue(platform_id: int, round_num: int):
         .order_by('-生效轮次', '-id')
         .first()
     )
-    w1 = Decimal(str(active_scheme.w1_click or 0)) if active_scheme else Decimal('0.25')
-    w2 = Decimal(str(active_scheme.w2_finish or 0)) if active_scheme else Decimal('0.25')
-    w3 = Decimal(str(active_scheme.w3_collect or 0)) if active_scheme else Decimal('0.25')
-    w4 = Decimal(str(active_scheme.w4_satisfaction or 0)) if active_scheme else Decimal('0.25')
+    _third = Decimal('1') / Decimal('3')
+    if active_scheme:
+        w1 = Decimal(str(active_scheme.w1_click or 0))
+        w2 = Decimal(str(active_scheme.w2_finish or 0))
+        w3 = Decimal(str(active_scheme.w3_collect or 0))
+    else:
+        w1 = w2 = w3 = _third
+    cost_coef = WRITING_COST_COEFFICIENT_DEFAULT
 
     revenue_penalty_measure = _get_effective_governance_measure(platform_id, 'revenue_penalty', round_num)
     beta = Decimal('1.0')
@@ -1729,14 +1768,13 @@ def _settle_article_revenue(platform_id: int, round_num: int):
         clicks = art.点击量 or 0
         finish_count = UserArticleReadComplete.objects.filter(文章=art).count()
         collect_count = UserArticleCollect.objects.filter(文章=art).count()
-        satisfaction = Decimal('0')
+        cost_value = get_writing_cost_value_for_relevance(art.内容相关度_校准值)
 
-        raw_revenue = (
-            w1 * Decimal(str(clicks))
-            + w2 * Decimal(str(finish_count))
-            + w3 * Decimal(str(collect_count))
-            + w4 * satisfaction
-        )
+        part_click = w1 * Decimal(str(clicks))
+        part_finish = w2 * Decimal(str(finish_count))
+        part_collect = w3 * Decimal(str(collect_count))
+        part_writing = cost_coef * cost_value
+        raw_revenue = part_click + part_finish + part_collect + part_writing
 
         penalty_applied = False
         penalty_coeff = Decimal('1.0')
@@ -1757,8 +1795,13 @@ def _settle_article_revenue(platform_id: int, round_num: int):
             点击量=clicks,
             阅读完成量=finish_count,
             收藏量=collect_count,
-            满意度均分=satisfaction,
-            w1=w1, w2=w2, w3=w3, w4=w4,
+            写作成本数值=cost_value,
+            写作成本系数=cost_coef,
+            w1=w1, w2=w2, w3=w3,
+            因子_点击量=part_click,
+            因子_阅读完成=part_finish,
+            因子_收藏=part_collect,
+            因子_写作成本=part_writing,
             原始收益=raw_revenue,
             penalty_applied=penalty_applied,
             penalty_coefficient=penalty_coeff,
@@ -1769,7 +1812,7 @@ def _settle_article_revenue(platform_id: int, round_num: int):
             f"文章收益结算 article_id={art.pk} writer={art.写手账号} "
             f"round={round_num} platform={platform_id} "
             f"clicks={clicks} finish={finish_count} collect={collect_count} "
-            f"w1={w1} w2={w2} w3={w3} w4={w4} "
+            f"writing_cost_value={cost_value} cost_coef={cost_coef} w1={w1} w2={w2} w3={w3} "
             f"raw={raw_revenue} is_clickbait={art.is_clickbait} "
             f"penalty={'1' if penalty_applied else '0'} beta={penalty_coeff} final={final_revenue}"
         )
@@ -2690,7 +2733,7 @@ def logout_view(request):
 @require_http_methods(['POST'])
 def end_round(request):
     """结束本轮：
-    1) 按平台结算本轮文章收益（绩效 w1-w4 + 收益惩罚 β），落库 ArticleRevenueSettlement，更新 Article.报酬。
+    1) 按平台结算本轮文章收益（绩效 w1～w3、写作成本系数×映射成本、收益惩罚 β），落库 ArticleRevenueSettlement，更新 Article.报酬。
     2) 若命中周期末，结算平台周期利润并写 PlatformCycleProfitRecord。
     3) 再将当前模拟轮次 +1，不删任何文章/推送数据。
 
