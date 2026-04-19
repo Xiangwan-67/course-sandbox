@@ -2844,7 +2844,8 @@ def writer_start_article(request):
     account = request.session.get('account', '')
     if not account:
         return JsonResponse({'error': '未登录'}, status=403)
-    article = Article.objects.create(写手账号=account)
+    # 文章应记录创建时所在轮次；用户列表按本轮过滤展示
+    article = Article.objects.create(写手账号=account, 轮次=_get_current_round())
     request.session['writer_article_id'] = article.pk
     action_log(f"写手 {account} 点击发布文章 article_id={article.pk}")
     return JsonResponse({'article_id': article.pk})
