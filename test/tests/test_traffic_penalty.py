@@ -439,9 +439,8 @@ def test_traffic_penalty_push_log_contains_required_fields(
     log_text = _read_log(action_log_path)
     assert f"article_id={aid}" in log_text
     assert "文章推送完成" in log_text
-    assert "base_ratio=" in log_text
+    assert "push_coef=" in log_text
     assert "penalty_coeff=0.35" in log_text
-    assert "gamma=" in log_text
     assert "final_ratio=" in log_text
     assert "discover_chosen=" in log_text
     assert "total_pushed=" in log_text

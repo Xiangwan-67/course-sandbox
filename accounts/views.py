@@ -2245,6 +2245,24 @@ def _match_push_ratio(score: int, configs):
     return _resolve_health_tier_and_ratio(score, configs)[1]
 
 
+def _sync_writer_push_ratios_for_account_health_platform(platform_id: int, round_num: int) -> None:
+    """账号健康分治理措施在当前轮次已生效时：按写手当前健康分所在档位更新 health_tier 与 推流系数（与档位可推流比例一致）。"""
+    if not _get_effective_health_rule(platform_id, round_num):
+        return
+    cfg = _get_latest_account_health_config(platform_id)
+    if not cfg:
+        return
+    configs = _get_effective_health_level_configs(round_num, platform_id=platform_id, config_id=cfg.pk)
+    if not configs:
+        return
+    for writer in WriterAccount.objects.filter(所属平台=platform_id):
+        score = int(getattr(writer, '健康分', cfg.初始健康分 or 100))
+        tier, ratio = _resolve_health_tier_and_ratio(score, configs)
+        writer.health_tier = tier
+        writer.推流系数 = ratio
+        writer.save(update_fields=['health_tier', '推流系数'])
+
+
 def _recover_writer_health_for_platform(platform_id: int, round_num: int):
     """按平台执行健康分恢复机制（在结束本轮时调用）。"""
     # 与扣分口径保持一致：仅在“账号健康分治理措施处于生效中”时，才允许执行恢复。
@@ -2802,12 +2820,14 @@ def _get_writer_article(request):
         return None
 
 
-def _do_article_push(article, discover_ratio: Decimal = Decimal('0.5')):
+def _do_article_push(article):
     """文章推送：仅推送给与写手同平台的用户。
 
-    流量公式：final_discover_ratio = base_ratio × penalty_coeff(α) × health_tier_coeff(γ)
+    发现列表抽样比例：final_ratio = 写手表.推流系数 × 流量惩罚系数(α)。
+    - 推流系数与后台档位可推流比例一致（未开健康分时默认为 1，与写手表一致）；
+    - α 仅当平台启用流量惩罚且文章为标题党时取配置，否则为 1。
     - 关注列表：粉丝 100% 推送
-    - 发现列表：非粉丝按 final_discover_ratio 随机抽样推送
+    - 发现列表：非粉丝按 final_ratio 随机抽样推送
     """
     import random
     from accounts.models import TrafficPenaltyConfig, ArticleTraffic
@@ -2831,11 +2851,9 @@ def _do_article_push(article, discover_ratio: Decimal = Decimal('0.5')):
             penalty_coeff = tp_cfg.降权系数alpha
             penalty_applied = True
 
-    # 健康档位推流系数 γ
-    gamma = Decimal(str(getattr(writer, '推流系数', Decimal('1.0'))))
-
-    base_ratio = max(Decimal('0'), min(Decimal('1'), _decimal(discover_ratio)))
-    final_ratio = max(Decimal('0'), min(Decimal('1'), base_ratio * penalty_coeff * gamma))
+    # 基础推流比例：与写手表「推流系数」一致（健康分开启时由档位同步或扣分更新）
+    base_ratio = max(Decimal('0'), min(Decimal('1'), Decimal(str(getattr(writer, '推流系数', Decimal('1.0'))))))
+    final_ratio = max(Decimal('0'), min(Decimal('1'), base_ratio * penalty_coeff))
 
     fan_ids = set(
         UserFollowWriter.objects.filter(写手账号=article.写手账号, 用户__in=users_same_platform)
@@ -2867,15 +2885,15 @@ def _do_article_push(article, discover_ratio: Decimal = Decimal('0.5')):
         基础流量=base_traffic,
         penalty_applied=penalty_applied,
         penalty_coefficient=penalty_coeff,
-        health_tier_coefficient=gamma,
+        health_tier_coefficient=base_ratio,
         最终流量=final_traffic,
     )
 
     action_log(
         f"文章推送完成 article_id={article.pk} 平台={writer_platform} "
         f"fans={len(fans)} non_fans_total={len(non_fans)} "
-        f"base_ratio={str(base_ratio)} penalty_coeff={str(penalty_coeff)} "
-        f"gamma={str(gamma)} final_ratio={str(final_ratio)} "
+        f"push_coef={str(base_ratio)} penalty_coeff={str(penalty_coeff)} "
+        f"final_ratio={str(final_ratio)} "
         f"discover_chosen={len(chosen_non_fans)} total_pushed={total_pushed}"
     )
 
@@ -3016,11 +3034,10 @@ def writer_select_body(request):
             f"delta={delta} before={before_score} after={after_score} tier={new_tier} gamma={str(new_ratio)}"
         )
 
-    ratio = _match_push_ratio(after_score, configs)
-    if not health_rule:
-        ratio = _match_push_ratio(before_score, configs)
+    if writer:
+        writer.refresh_from_db()
 
-    _do_article_push(article, discover_ratio=ratio)
+    _do_article_push(article)
     return JsonResponse({'ok': True, 'article_id': article.pk})
 
 
