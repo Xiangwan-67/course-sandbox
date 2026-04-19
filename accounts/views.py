@@ -1552,6 +1552,8 @@ def platform_performance_submit(request):
     _sum_tol = Decimal('0.001')
     if abs(w1 + w2 + w3 - Decimal('1')) > _sum_tol:
         return JsonResponse({'error': '三项权重之和必须等于 1'}, status=400)
+    if PlatformPerformanceScheme.objects.filter(平台=platform_id, status='pending').exists():
+        return JsonResponse({'error': '当前已有待审核的绩效方案，请等待管理员审核后再提交。'}, status=400)
     round_num = _get_current_round()
     effective_round = round_num + 1
     rec = PlatformPerformanceScheme.objects.create(

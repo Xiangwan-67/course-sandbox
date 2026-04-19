@@ -159,6 +159,31 @@ def test_platform_performance_page_shows_active_and_pending_scheme(client_platfo
     assert "待审核方案" in html
     assert f"方案 ID：{active.pk}" in html
     assert f"方案 ID：{pending.pk}" in html
+    assert "已有待审核方案" in html
+    assert "w1 — 点击量权重" not in html
+
+
+@pytest.mark.django_db
+def test_platform_performance_submit_rejects_when_pending_exists(client_platform_logged_in, platform_account):
+    client, _platform = client_platform_logged_in
+    current_round = _get_current_round()
+    PlatformPerformanceScheme.objects.create(
+        平台=platform_account.所属平台,
+        生效轮次=current_round + 1,
+        方案编号="S1_balanced",
+        方案内容={"w1": "0.4", "w2": "0.3", "w3": "0.3"},
+        发布人账号=platform_account.账号,
+        w1_click=Decimal("0.40"),
+        w2_finish=Decimal("0.30"),
+        w3_collect=Decimal("0.30"),
+        status="pending",
+    )
+    r = client.post(
+        "/platform/performance/submit/",
+        {"w1": "0.34", "w2": "0.33", "w3": "0.33"},
+    )
+    assert r.status_code == 400
+    assert "待审核" in (r.json().get("error") or "")
 
 
 @pytest.mark.django_db
