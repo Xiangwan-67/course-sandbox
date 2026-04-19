@@ -47,6 +47,9 @@ def perform_end_round() -> Dict[str, Any]:
 
     SimulationRound.objects.filter(pk=1).update(当前轮次=F('当前轮次') + 1)
     new_round = _get_current_round()
+    from accounts.governance_notices import dispatch_governance_notices_for_round
+
+    dispatch_governance_notices_for_round(new_round)
     _run_regulation_auto_patrols_for_round_transition(round_to_settle, new_round)
     action_log(
         f"结束本轮 round={round_to_settle} -> {new_round} | 已文章收益结算={settled} "

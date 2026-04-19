@@ -22,7 +22,7 @@ from accounts.models import (
     UserFollowWriter, UnfollowSurvey, ArticlePush, ArticlePushDetail,
     UserArticleLike, UserArticleCollect, UserArticleReadComplete,
     SimulationRound,
-    AccountHealthConfig, AccountHealthLevelConfig, WriterNoticeRead, WriterHealthScoreLog,
+    AccountHealthConfig, AccountHealthLevelConfig, WriterGovernanceNotice, WriterHealthScoreLog,
     ClickbaitDetectionConfig, ClickbaitDetectionResult,
     TrafficPenaltyConfig, ArticleTraffic,
     UserReportConfig, ArticleReport,
@@ -142,15 +142,7 @@ def writer_home(request):
     account_ranking = list(
         WriterAccount.objects.filter(所属平台=writer_platform).order_by('-粉丝数')
     )
-    notices = list(
-        PlatformGovernanceMeasure.objects.filter(平台=writer_platform).order_by('-轮次', '-创建时间')[:20]
-    )
-    read_ids = set(
-        WriterNoticeRead.objects
-        .filter(写手账号=account, 通知__in=notices)
-        .values_list('通知_id', flat=True)
-    ) if notices else set()
-    has_unread = any(n.pk not in read_ids for n in notices)
+    has_unread = WriterGovernanceNotice.objects.filter(写手账号=account, 是否已读=False).exists()
     return render(request, 'accounts/writer_home.html', {
         'name': account,
         'article_ranking': article_ranking,
@@ -169,15 +161,12 @@ def writer_notices(request):
     writer_platform = getattr(writer, '所属平台', 0) if writer else 0
     current_round = _get_current_round()
     notices = list(
-        PlatformGovernanceMeasure.objects.filter(平台=writer_platform).order_by('-轮次', '-创建时间')[:50]
+        WriterGovernanceNotice.objects.filter(写手账号=account)
+        .select_related('measure')
+        .order_by('-投递轮次', '-id')[:50]
     )
-    read_ids = set(
-        WriterNoticeRead.objects
-        .filter(写手账号=account, 通知__in=notices)
-        .values_list('通知_id', flat=True)
-    ) if notices else set()
-    for n in notices:
-        n.is_unread = n.pk not in read_ids
+    for row in notices:
+        row.is_unread = not row.是否已读
     return render(request, 'accounts/writer_notices.html', {
         'name': account,
         'platform_name': PLATFORM_NAMES.get(writer_platform, '平台1'),
@@ -188,15 +177,20 @@ def writer_notices(request):
 
 @require_http_methods(['POST'])
 def writer_notice_read(request, notice_id: int):
-    """写手标记通知已读：写入 WriterNoticeRead。"""
+    """写手标记通知已读：更新 WriterGovernanceNotice。"""
     account = request.session.get('account', '')
     if not account or request.session.get('role') != 'writer':
         return JsonResponse({'error': '未登录或非写手'}, status=403)
     try:
-        notice = PlatformGovernanceMeasure.objects.get(pk=notice_id)
-    except PlatformGovernanceMeasure.DoesNotExist:
+        row = WriterGovernanceNotice.objects.select_related('measure').get(pk=notice_id)
+    except WriterGovernanceNotice.DoesNotExist:
         return JsonResponse({'error': '通知不存在'}, status=404)
-    WriterNoticeRead.objects.get_or_create(写手账号=account, 通知=notice)
+    if row.写手账号 != account:
+        return JsonResponse({'error': '无权操作'}, status=403)
+    if not row.是否已读:
+        row.是否已读 = True
+        row.read_at = timezone.now()
+        row.save(update_fields=['是否已读', 'read_at'])
     return JsonResponse({'ok': True})
 
 

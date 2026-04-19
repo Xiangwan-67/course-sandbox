@@ -8,7 +8,7 @@ from .models import (
     RegulatorFineApplication, RegulatorFineRecord,
     ProfitWeightConfig, PlatformCycleProfitRecord,
     PlatformGovernanceMeasure, PlatformPerformanceScheme,
-    AccountHealthConfig, AccountHealthLevelConfig, WriterNoticeRead, WriterHealthScoreLog,
+    AccountHealthConfig, AccountHealthLevelConfig, WriterNoticeRead, WriterGovernanceNotice, WriterHealthScoreLog,
     Article, Comment, PlatformSwitchSurvey,
     UserFollowWriter, UnfollowSurvey, ArticlePushDetail, ArticlePush,
     UserArticleLike, UserArticleCollect, UserArticleReadComplete,
@@ -221,6 +221,12 @@ class AccountHealthLevelConfigAdmin(admin.ModelAdmin):
 class WriterNoticeReadAdmin(admin.ModelAdmin):
     list_display = ['id', '写手账号', '通知', 'read_at']
     list_filter = ['写手账号']
+
+
+@admin.register(WriterGovernanceNotice)
+class WriterGovernanceNoticeAdmin(admin.ModelAdmin):
+    list_display = ['id', '写手账号', 'measure', '投递轮次', '是否已读', 'read_at']
+    list_filter = ['是否已读', '投递轮次']
 
 
 @admin.register(WriterHealthScoreLog)

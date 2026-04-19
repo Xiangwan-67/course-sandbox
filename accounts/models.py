@@ -352,7 +352,7 @@ class PlatformCycleProfitRecord(models.Model):
 
 
 class PlatformGovernanceMeasure(models.Model):
-    """平台治理措施发布记录（平台负责人发布后进入通知栏）。"""
+    """平台治理措施发布记录（待管理员审核；写手端通知在生效轮次由收件箱表投递）。"""
 
     MEASURE_TYPE_CHOICES = [
         ('account_health_rule', '账号健康分规则'),
@@ -446,7 +446,7 @@ class AccountHealthLevelConfig(models.Model):
 
 
 class WriterNoticeRead(models.Model):
-    """写手平台通知已读记录（用于红点提示）。"""
+    """写手平台通知已读记录（历史表；平台治理措施通知已改用 WriterGovernanceNotice）。"""
 
     写手账号 = models.CharField(max_length=64)
     通知 = models.ForeignKey(PlatformGovernanceMeasure, on_delete=models.CASCADE, related_name='已读记录')
@@ -458,6 +458,29 @@ class WriterNoticeRead(models.Model):
         verbose_name_plural = '写手通知已读'
         unique_together = [['写手账号', '通知']]
         ordering = ['-read_at', '-id']
+
+
+class WriterGovernanceNotice(models.Model):
+    """写手治理通知收件箱：每条平台治理措施在生效轮次向该平台每名写手投递一行（唯一），持久保存已读状态。"""
+
+    写手账号 = models.CharField(max_length=64)
+    measure = models.ForeignKey(
+        PlatformGovernanceMeasure,
+        on_delete=models.CASCADE,
+        related_name='写手通知记录',
+    )
+    是否已读 = models.BooleanField(default=False)
+    read_at = models.DateTimeField(null=True, blank=True)
+    投递轮次 = models.PositiveIntegerField()
+
+    class Meta:
+        db_table = '写手治理通知收件箱'
+        verbose_name = '写手治理通知收件箱'
+        verbose_name_plural = '写手治理通知收件箱'
+        constraints = [
+            models.UniqueConstraint(fields=['写手账号', 'measure'], name='uniq_writer_governance_notice'),
+        ]
+        ordering = ['-投递轮次', '-id']
 
 
 class WriterHealthScoreLog(models.Model):

@@ -177,6 +177,8 @@ def reject_platform_patrol_queryset(request, queryset) -> None:
 # ----- 平台治理措施 -----
 
 def approve_platform_governance_measure_queryset(request, queryset) -> None:
+    from accounts.governance_notices import maybe_dispatch_governance_notice_after_approval
+
     admin_account = _admin_account(request)
     now = _now()
     for rec in queryset.filter(status='pending'):
@@ -187,6 +189,7 @@ def approve_platform_governance_measure_queryset(request, queryset) -> None:
         action_log(
             f"管理员确认治理措施生效 | 管理员={admin_account} measure_id={rec.pk} 平台={rec.平台} type={rec.措施类型} 生效轮次={rec.生效轮次} config_id={rec.config_id}"
         )
+        maybe_dispatch_governance_notice_after_approval(rec)
 
 
 def reject_platform_governance_measure_queryset(request, queryset) -> None:

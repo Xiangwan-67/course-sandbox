@@ -17,16 +17,16 @@
   <p>写手：{{ name }} | 平台：{{ platform_name }} | 当前轮次：{{ current_round }}</p>
 
   {% if notices and notices|length > 0 %}
-    {% for n in notices %}
-      <div class="notice {% if n.is_unread %}unread{% endif %}">
-        <div><strong>{{ n.get_措施类型_display }}</strong>（发布轮次：第 {{ n.轮次 }} 轮）{% if n.is_unread %}<span style="color:#c00; margin-left: 6px;">● 未读</span>{% endif %}</div>
-        <div class="meta">生效轮次：第 {{ n.生效轮次 }} 轮{% if n.取消轮次 %} | 取消轮次：第 {{ n.取消轮次 }} 轮{% endif %}</div>
-        <div class="meta">发布人：{{ n.发布人账号 }} | 时间：{{ n.创建时间 }}</div>
-        {% if n.措施内容 %}
-          <pre style="white-space: pre-wrap; margin: 8px 0 0 0;">{{ n.措施内容|safe }}</pre>
+    {% for row in notices %}
+      <div class="notice {% if row.is_unread %}unread{% endif %}">
+        <div><strong>{{ row.measure.get_措施类型_display }}</strong>（发布轮次：第 {{ row.measure.轮次 }} 轮）{% if row.is_unread %}<span style="color:#c00; margin-left: 6px;">● 未读</span>{% endif %}</div>
+        <div class="meta">生效轮次：第 {{ row.measure.生效轮次 }} 轮{% if row.measure.取消轮次 %} | 取消轮次：第 {{ row.measure.取消轮次 }} 轮{% endif %}</div>
+        <div class="meta">发布人：{{ row.measure.发布人账号 }} | 时间：{{ row.measure.创建时间 }}</div>
+        {% if row.measure.措施内容 %}
+          <pre style="white-space: pre-wrap; margin: 8px 0 0 0;">{{ row.measure.措施内容|safe }}</pre>
         {% endif %}
-        {% if n.is_unread %}
-          <button class="btn" onclick="markRead({{ n.id }})">我已阅读</button>
+        {% if row.is_unread %}
+          <button class="btn" onclick="markRead({{ row.id }})">我已阅读</button>
         {% endif %}
       </div>
     {% endfor %}
