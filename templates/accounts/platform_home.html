@@ -149,26 +149,6 @@
         收藏={{ prev_round_summary.total_collect }}
       </div>
     </div>
-
-    <div style="margin-top: 10px;">
-      <strong>治理通知栏</strong>
-      {% if governance_notices and governance_notices|length > 0 %}
-        {% for n in governance_notices %}
-          <div style="padding: 8px; border: 1px solid #eee; margin-top: 8px;">
-            <div>
-              <strong>第 {{ n.轮次 }} 轮</strong> - {{ n.get_措施类型_display }}
-              （发布人：{{ n.发布人账号 }}）
-            </div>
-            <div style="margin-top: 4px; color:#666; font-size: 0.9rem;">
-              生效轮次：第 {{ n.生效轮次 }} 轮
-              {% if n.取消轮次 %} | 取消轮次：第 {{ n.取消轮次 }} 轮{% endif %}
-            </div>
-          </div>
-        {% endfor %}
-      {% else %}
-        <div style="margin-top: 6px;">暂无通知。</div>
-      {% endif %}
-    </div>
   </div>
 
   <div style="margin-top: 16px; padding: 12px; border: 1px solid #ddd;">

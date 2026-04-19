@@ -124,7 +124,7 @@
         </div>
     </div>
 
-    <div class="rank-box" style="margin-top: 1.5rem; max-width: 100%;">
+    <div class="rank-box" id="my_prev_round_section" style="margin-top: 1.5rem; max-width: 100%;">
         <h3>【我的上一轮表现】</h3>
         {% if prev_round < 1 %}
             <p style="color:#666;">当前为第1轮，无上一轮个人数据。</p>
@@ -306,6 +306,8 @@
                     }
                     errPub.style.display = 'none';
                     publishBlock.classList.add('visible');
+                    var myPrev = document.getElementById('my_prev_round_section');
+                    if (myPrev) myPrev.style.display = 'none';
                     document.getElementById('writer_rankings').style.display = 'none';
                     document.getElementById('link_history').style.display = 'none';
                 })

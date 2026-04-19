@@ -118,7 +118,7 @@ def login_view(request):
 
 @ensure_csrf_cookie
 def writer_home(request):
-    """写手首页：显示「写手xx，您好！」、上一轮文章榜单（同平台）、同平台账号榜单、历史文章入口。"""
+    """写手首页：问候、上一轮「我的上一轮表现」、文章/账号榜单等；发文流程由模板脚本隐藏榜单与该表现块。"""
     account = request.session.get('account', '')
     if not account or request.session.get('role') != 'writer':
         return redirect('accounts:login')
@@ -357,13 +357,7 @@ def platform_home(request):
     ]
     governance_status = []
     for m_type, m_name, m_icon, config_url in enabled_measure_defs:
-        measure = (
-            PlatformGovernanceMeasure.objects
-            .filter(平台=platform_id, 措施类型=m_type, 生效轮次__lte=current_round)
-            .filter(Q(取消轮次__isnull=True) | Q(取消轮次__gt=current_round))
-            .order_by('-生效轮次', '-id')
-            .first()
-        )
+        measure = _get_effective_governance_measure(platform_id, m_type, current_round)
         if not measure:
             continue
         summary = '参数待补充'
@@ -450,11 +444,6 @@ def platform_home(request):
         'financial_analysis': financial_analysis,
         'governance_status': governance_status,
         'prev_round_summary': prev_round_summary,
-        'governance_notices': list(
-            PlatformGovernanceMeasure.objects
-            .filter(平台=platform_id)
-            .order_by('-轮次', '-创建时间')[:20]
-        ),
         'current_performance_scheme': current_performance_scheme,
     })
 
@@ -540,13 +529,7 @@ def platform_round_result(request):
     ]
     config_review = []
     for m_type, m_name in enabled_types:
-        measure = (
-            PlatformGovernanceMeasure.objects
-            .filter(平台=platform_id, 措施类型=m_type, 生效轮次__lte=target_round)
-            .filter(Q(取消轮次__isnull=True) | Q(取消轮次__gt=target_round))
-            .order_by('-生效轮次', '-id')
-            .first()
-        )
+        measure = _get_effective_governance_measure(platform_id, m_type, target_round)
         if not measure:
             continue
         summary = '参数待补充'
@@ -1103,21 +1086,12 @@ def platform_governance(request):
     health_levels = []
     if health_cfg:
         health_levels = _get_effective_health_level_configs(current_round, platform_id=platform_id, config_id=health_cfg.pk)
-    def _is_measure_published(m_type):
-        rec = (
-            PlatformGovernanceMeasure.objects
-            .filter(平台=platform_id, 措施类型=m_type)
-            .order_by('-轮次', '-id')
-            .first()
-        )
-        return bool(rec and rec.取消轮次 is None)
-
     measures = [
         {
             'type': 'account_health_rule',
             'name': '账号健康分规则',
             'desc': '对平台所有写手账号设置健康分（初始100分），按梯度惩罚。发布后进入通知栏。',
-            'published': _is_measure_published('account_health_rule'),
+            'published': _measure_published_for_ui(platform_id, 'account_health_rule', current_round),
             'config_url': None,
             'health_config': health_cfg,
             'health_levels': health_levels,
@@ -1126,35 +1100,35 @@ def platform_governance(request):
             'type': 'clickbait_detection',
             'name': '标题党检测',
             'desc': '自动检测写手文章是否为标题党。默认参数由管理员维护，平台侧仅开关。',
-            'published': _is_measure_published('clickbait_detection'),
+            'published': _measure_published_for_ui(platform_id, 'clickbait_detection', current_round),
             'config_url': 'accounts:platform_clickbait_detection',
         },
         {
             'type': 'user_report',
             'name': '用户举报',
             'desc': '允许用户举报疑似标题党文章，达到阈值后自动/人工审核。需先配置参数再发布。',
-            'published': _is_measure_published('user_report'),
+            'published': _measure_published_for_ui(platform_id, 'user_report', current_round),
             'config_url': 'accounts:platform_report',
         },
         {
             'type': 'traffic_penalty',
             'name': '流量惩罚',
             'desc': '对标题党文章进行流量降权（α系数）。需先配置降权系数，再发布启用。',
-            'published': _is_measure_published('traffic_penalty'),
+            'published': _measure_published_for_ui(platform_id, 'traffic_penalty', current_round),
             'config_url': 'accounts:platform_traffic_penalty',
         },
         {
             'type': 'revenue_penalty',
             'name': '收益惩罚',
             'desc': '对标题党文章进行收益惩罚（β系数）。需先配置参数再发布。',
-            'published': _is_measure_published('revenue_penalty'),
+            'published': _measure_published_for_ui(platform_id, 'revenue_penalty', current_round),
             'config_url': 'accounts:platform_revenue_penalty',
         },
         {
             'type': 'performance_rule',
             'name': '绩效规则',
             'desc': '配置写手绩效考核权重方案，需管理员审批。',
-            'published': _is_measure_published('performance_rule'),
+            'published': _measure_published_for_ui(platform_id, 'performance_rule', current_round),
             'config_url': None,
         },
     ]
@@ -1325,7 +1299,7 @@ def platform_clickbait_detection(request):
         .order_by('-轮次', '-id')
         .first()
     )
-    is_published = bool(latest_measure and latest_measure.取消轮次 is None and latest_measure.status in ('pending', 'active'))
+    is_published = _measure_published_for_ui(platform_id, 'clickbait_detection', current_round)
     return render(request, 'accounts/platform_clickbait_detection.html', {
         'name': account,
         'platform_id': platform_id,
@@ -1361,7 +1335,7 @@ def platform_traffic_penalty(request):
         .order_by('-轮次', '-id')
         .first()
     )
-    is_published = bool(latest_measure and latest_measure.取消轮次 is None and latest_measure.status in ('pending', 'active'))
+    is_published = _measure_published_for_ui(platform_id, 'traffic_penalty', current_round)
     return render(request, 'accounts/platform_traffic_penalty.html', {
         'name': account,
         'platform_id': platform_id,
@@ -1419,7 +1393,7 @@ def platform_report(request):
         .order_by('-轮次', '-id')
         .first()
     )
-    is_published = bool(latest_measure and latest_measure.取消轮次 is None and latest_measure.status in ('pending', 'active'))
+    is_published = _measure_published_for_ui(platform_id, 'user_report', current_round)
     return render(request, 'accounts/platform_report.html', {
         'name': account,
         'platform_id': platform_id,
@@ -1481,7 +1455,7 @@ def platform_revenue_penalty(request):
         .order_by('-轮次', '-id')
         .first()
     )
-    is_published = bool(latest_measure and latest_measure.取消轮次 is None and latest_measure.status in ('pending', 'active'))
+    is_published = _measure_published_for_ui(platform_id, 'revenue_penalty', current_round)
     return render(request, 'accounts/platform_revenue_penalty.html', {
         'name': account,
         'platform_id': platform_id,
@@ -1914,6 +1888,52 @@ def _process_article_reports(platform_id: int, round_num: int):
                     f"round={round_num} report_count={cnt} read_count={read_count} "
                     f"ratio={str(ratio)} threshold={str(threshold)}"
                 )
+
+
+def _latest_governance_measure(platform_id: int, measure_type: str):
+    return (
+        PlatformGovernanceMeasure.objects
+        .filter(平台=platform_id, 措施类型=measure_type)
+        .order_by('-轮次', '-id')
+        .first()
+    )
+
+
+def _config_snapshot_active(measure: PlatformGovernanceMeasure, platform_id: int, current_round: int) -> bool:
+    """措施已在管理员侧生效时，绑定的参数子表（或绩效方案）是否仍为 active。"""
+    mt = measure.措施类型
+    cid = measure.config_id
+    if mt == 'performance_rule':
+        return bool(
+            PlatformPerformanceScheme.objects.filter(
+                平台=platform_id, status='active', 生效轮次__lte=current_round
+            ).order_by('-生效轮次', '-id').first()
+        )
+    if cid is None:
+        return False
+    if mt == 'account_health_rule':
+        return AccountHealthConfig.objects.filter(pk=cid, status='active').exists()
+    if mt == 'clickbait_detection':
+        return ClickbaitDetectionConfig.objects.filter(pk=cid, status='active').exists()
+    if mt == 'traffic_penalty':
+        return TrafficPenaltyConfig.objects.filter(pk=cid, status='active').exists()
+    if mt == 'user_report':
+        return UserReportConfig.objects.filter(pk=cid, status='active').exists()
+    if mt == 'revenue_penalty':
+        return RevenuePenaltyConfig.objects.filter(pk=cid, status='active').exists()
+    return False
+
+
+def _measure_published_for_ui(platform_id: int, measure_type: str, current_round: int) -> bool:
+    """平台治理总览「已发布」：发布申请为 active、未安排取消、参数子表仍为 active。"""
+    rec = _latest_governance_measure(platform_id, measure_type)
+    if not rec:
+        return False
+    if rec.status != 'active':
+        return False
+    if rec.取消轮次 is not None:
+        return False
+    return _config_snapshot_active(rec, platform_id, current_round)
 
 
 def _get_effective_governance_measure(platform_id: int, measure_type: str, round_num: int):
