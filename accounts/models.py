@@ -852,6 +852,32 @@ class ArticleReport(models.Model):
         ordering = ['-创建时间', '-id']
 
 
+class ReportAnomalyRecord(models.Model):
+    """举报异常记录：用于排查“实时自增计数”与“结算聚合统计”不一致的问题。"""
+
+    轮次 = models.PositiveIntegerField()
+    事件 = models.CharField(max_length=32, default='user_report')  # 预留扩展其他事件
+    平台编号 = models.IntegerField()
+    文章id = models.PositiveIntegerField()
+
+    实时更新举报数 = models.IntegerField()
+    结算统计举报数 = models.IntegerField()
+
+    创建时间 = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = '举报异常记录'
+        verbose_name = '举报异常记录'
+        verbose_name_plural = '举报异常记录'
+        ordering = ['-创建时间', '-id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['轮次', '事件', '平台编号', '文章id'],
+                name='uniq_report_anomaly_round_event_platform_article',
+            ),
+        ]
+
+
 class RevenuePenaltyConfig(models.Model):
     """收益惩罚功能包参数配置（按平台独立）。"""
 

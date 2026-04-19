@@ -8,6 +8,7 @@ from accounts.models import (
     Article,
     ArticleReport,
     PlatformGovernanceMeasure,
+    ReportAnomalyRecord,
     SimulationRound,
 )
 from accounts.views import _get_current_round
@@ -198,6 +199,10 @@ def test_end_round_with_auto_review_approves(
 
     client, user = client_user_logged_in
     article = _create_article(writer_account=writer_accounts[0].账号, round_num=round_num, clicks=1)
+    # 让文章满足标题党检测规则（X>=4 且 Y<3），便于验证“达阈值后走标题党判定流程”
+    article.标题夸张度_初始值 = 5
+    article.内容相关度_初始值 = 1
+    article.save(update_fields=["标题夸张度_初始值", "内容相关度_初始值"])
 
     r = client.post(f"/user/article/{article.pk}/report/")
     assert r.status_code == 200
@@ -215,7 +220,7 @@ def test_end_round_with_auto_review_approves(
     assert rec.审核状态 == "approved"
 
     log_text = action_log_path.read_text(encoding="utf-8", errors="replace")
-    assert "举报达阈值自动审核通过" in log_text
+    assert "举报达阈值自动审核完成" in log_text
 
 
 @pytest.mark.django_db
@@ -242,6 +247,10 @@ def test_end_round_with_manual_review_keeps_pending(
 
     client, user = client_user_logged_in
     article = _create_article(writer_account=writer_accounts[0].账号, round_num=round_num, clicks=1)
+    # 让文章满足标题党检测规则（X>=4 且 Y<3）
+    article.标题夸张度_初始值 = 5
+    article.内容相关度_初始值 = 1
+    article.save(update_fields=["标题夸张度_初始值", "内容相关度_初始值"])
 
     r = client.post(f"/user/article/{article.pk}/report/")
     assert r.status_code == 200
@@ -251,8 +260,9 @@ def test_end_round_with_manual_review_keeps_pending(
 
     article.refresh_from_db()
     assert article.report_count_current_round == 1
-    assert article.is_clickbait is None
-    assert article.method_user is None
+    # 达阈值后无论 auto/manual 都会走标题党判定流程，并标记已走过用户举报审核机制
+    assert article.is_clickbait is True
+    assert article.method_user is True
 
     rec = ArticleReport.objects.filter(文章=article, 举报人=user.账号, 举报轮次=round_num).first()
     assert rec is not None
@@ -314,3 +324,49 @@ def test_no_cancel_report_entry_in_ui(client_user_logged_in, writer_accounts):
     html = r.content.decode("utf-8", errors="replace")
     assert "取消举报" not in html
     assert "/report/cancel/" not in html
+
+
+@pytest.mark.django_db
+def test_end_round_records_report_anomaly_when_realtime_count_differs(
+    client_user_logged_in,
+    writer_accounts,
+    platform_account,
+    user_report_config_factory,
+):
+    round_num = _get_current_round()
+    cfg = user_report_config_factory(status="active", review_method="manual", threshold="0.30")
+    PlatformGovernanceMeasure.objects.create(
+        平台=platform_account.所属平台,
+        轮次=max(1, round_num - 1),
+        生效轮次=round_num,
+        措施类型="user_report",
+        措施内容={"举报触发阈值": str(cfg.举报触发阈值), "审核方式": cfg.审核方式},
+        config_id=cfg.pk,
+        发布人账号=platform_account.账号,
+        status="active",
+        管理员确认账号="admin",
+    )
+
+    client, user = client_user_logged_in
+    article = _create_article(writer_account=writer_accounts[0].账号, round_num=round_num, clicks=10)
+
+    # 正常举报一次 -> realtime count 会 +1
+    r = client.post(f"/user/article/{article.pk}/report/")
+    assert r.status_code == 200
+
+    # 人为制造不一致：把文章上的实时计数改成错误值（模拟并发/脏数据）
+    Article.objects.filter(pk=article.pk).update(report_count_current_round=99)
+
+    # 结束本轮：结算聚合会回填真实举报数（=1），并记录异常
+    r = client.post("/end-round/")
+    assert r.status_code == 200
+
+    rec = ReportAnomalyRecord.objects.filter(
+        轮次=round_num,
+        事件="user_report",
+        平台编号=user.所属平台,
+        文章id=article.pk,
+    ).first()
+    assert rec is not None
+    assert rec.实时更新举报数 == 99
+    assert rec.结算统计举报数 == 1

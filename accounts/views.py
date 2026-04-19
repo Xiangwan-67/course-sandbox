@@ -1863,12 +1863,15 @@ def _process_article_reports(platform_id: int, round_num: int):
     逻辑：
     1. 统计每篇文章本轮的 ArticleReport 数量 → 更新 Article.report_count_current_round
     2. 若 report_count / 阅读次数 >= 阈值：触发审核
-    3. 审核通过：更新 Article.is_clickbait=True, method_user=True
-    4. 无论自动检测还是用户举报，只要 is_clickbait=True，后续已启用的惩罚措施均自动生效。
+    3. 达阈值后，无论审核方式 auto/manual，均要求走一遍“是否标题党”的判定流程：
+       - 若 Article.is_clickbait 已明确为 True/False：直接使用该值；
+       - 否则：复用平台治理「标题党检测」流程进行判定，并同步写回 Article.is_clickbait；
+       同时总是更新 Article.method_user=True，表示已走过用户举报审核机制。
+    4. 兼容历史逻辑：auto 可直接更新举报记录为 approved；manual 保持 pending（待管理员），但文章字段仍会更新。
 
     由 end_round 结算流程调用。当前为预留接口，待 end_round 改造时集成。
     """
-    from accounts.models import UserReportConfig, ArticleReport, Article
+    from accounts.models import UserReportConfig, ArticleReport, Article, ReportAnomalyRecord
     from django.db.models import Count
 
     # 仅当该平台该轮次启用了用户举报机制时，才触发达阈值审核流程
@@ -1902,34 +1905,75 @@ def _process_article_reports(platform_id: int, round_num: int):
         except Article.DoesNotExist:
             continue
 
+        # 结算聚合回填前先取“实时更新”的计数，用于异常对比
+        realtime_cnt = int(getattr(art, 'report_count_current_round', 0) or 0)
+
         art.report_count_current_round = cnt
         art.save(update_fields=['report_count_current_round'])
+
+        # 若“实时更新”与“结算统计”不一致，写入异常表便于排查
+        if realtime_cnt != int(cnt):
+            ReportAnomalyRecord.objects.update_or_create(
+                轮次=round_num,
+                事件='user_report',
+                平台编号=platform_id,
+                文章id=art_id,
+                defaults={
+                    '实时更新举报数': realtime_cnt,
+                    '结算统计举报数': int(cnt),
+                },
+            )
 
         read_count = art.点击量 or 1
         ratio = Decimal(str(cnt)) / Decimal(str(read_count))
         if ratio >= threshold:
-            confirmed = False
-            if review_method == 'auto':
-                confirmed = True
-            # manual: 留待管理员在 admin 后台审核，此处不自动确认
+            # 达阈值后必须判定是否标题党（优先使用明确的 is_clickbait；否则复用平台治理标题党检测流程）
+            if art.is_clickbait is True or art.is_clickbait is False:
+                judged_clickbait = bool(art.is_clickbait)
+            else:
+                # 复用平台治理「标题党检测」的判定口径（阈值 X/Y + 文章校准/初始值），但不强依赖该功能包是否发布
+                # 目的：用户举报达阈值时，总能得到明确 True/False 判定
+                from accounts.models import ClickbaitDetectionConfig
 
-            if confirmed:
-                art.is_clickbait = True
-                art.method_user = True
-                art.save(update_fields=['is_clickbait', 'method_user'])
+                cfg_clickbait = (
+                    ClickbaitDetectionConfig.objects
+                    .filter(platform_id=platform_id, status='active')
+                    .order_by('-id')
+                    .first()
+                )
+                try:
+                    X_threshold = int(getattr(cfg_clickbait, '标题夸张度阈值X', 4) or 4) if cfg_clickbait else 4
+                except Exception:
+                    X_threshold = 4
+                try:
+                    Y_threshold = int(getattr(cfg_clickbait, '内容相关度阈值Y', 3) or 3) if cfg_clickbait else 3
+                except Exception:
+                    Y_threshold = 3
+
+                X = int(art.标题夸张度_校准值 or art.标题夸张度_初始值 or 0)
+                Y = int(art.内容相关度_校准值 or art.内容相关度_初始值 or 0)
+                judged_clickbait = (X >= X_threshold) and (Y < Y_threshold)
+                art.is_clickbait = judged_clickbait
+
+            # 无论判定结果如何，均标记该文章已走过用户举报审核机制
+            art.method_user = True
+            art.save(update_fields=['is_clickbait', 'method_user'])
+
+            # auto: 自动审核直接落举报记录状态；manual: 保持 pending，留待管理员
+            if review_method == 'auto':
                 ArticleReport.objects.filter(
                     platform_id=platform_id, 文章_id=art_id, 举报轮次=round_num
-                ).update(审核状态='approved')
+                ).update(审核状态='approved' if judged_clickbait else 'rejected')
                 action_log(
-                    f"举报达阈值自动审核通过 article_id={art_id} platform={platform_id} "
+                    f"举报达阈值自动审核完成 article_id={art_id} platform={platform_id} "
                     f"round={round_num} report_count={cnt} read_count={read_count} "
-                    f"ratio={str(ratio)} threshold={str(threshold)}"
+                    f"ratio={str(ratio)} threshold={str(threshold)} judged_clickbait={judged_clickbait}"
                 )
             else:
                 action_log(
                     f"举报达阈值待人工审核 article_id={art_id} platform={platform_id} "
                     f"round={round_num} report_count={cnt} read_count={read_count} "
-                    f"ratio={str(ratio)} threshold={str(threshold)}"
+                    f"ratio={str(ratio)} threshold={str(threshold)} judged_clickbait={judged_clickbait}"
                 )
 
 
