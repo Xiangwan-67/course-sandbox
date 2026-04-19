@@ -1124,13 +1124,6 @@ def platform_governance(request):
             'published': _measure_published_for_ui(platform_id, 'revenue_penalty', current_round),
             'config_url': 'accounts:platform_revenue_penalty',
         },
-        {
-            'type': 'performance_rule',
-            'name': '绩效规则',
-            'desc': '配置写手绩效考核权重方案，需管理员审批。',
-            'published': _measure_published_for_ui(platform_id, 'performance_rule', current_round),
-            'config_url': None,
-        },
     ]
     return render(request, 'accounts/platform_governance.html', {
         'name': account,
