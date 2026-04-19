@@ -17,7 +17,10 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 
+from accounts.admin_operations import sandbox_operations_dashboard
+
 urlpatterns = [
+    path('admin/sandbox-ops/', admin.site.admin_view(sandbox_operations_dashboard), name='admin_sandbox_ops'),
     path('admin/', admin.site.urls),
     path('', include('accounts.urls')),
 ]

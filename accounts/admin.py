@@ -1,4 +1,6 @@
 from django.contrib import admin
+
+from accounts import approval_actions
 from .models import (
     WriterAccount, UserAccount, PlatformAccount, RegulatorAccount,
     RegulationActionApplication, RegulationAction, PlatformSpotCheckResult,
@@ -14,7 +16,20 @@ from .models import (
     TrafficPenaltyConfig, ArticleTraffic,
     UserReportConfig, ArticleReport,
     RevenuePenaltyConfig, ArticleRevenueSettlement,
+    SimulationRound,
 )
+
+
+@admin.register(SimulationRound)
+class SimulationRoundAdmin(admin.ModelAdmin):
+    list_display = ['id', '当前轮次']
+    readonly_fields = ['当前轮次']
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(WriterAccount)
@@ -60,60 +75,11 @@ class RegulatorFineApplicationAdmin(admin.ModelAdmin):
 
     @admin.action(description='审核通过：生成罚款记录并生效')
     def approve_fine_applications(self, request, queryset):
-        from django.utils import timezone
-        from accounts.views import _get_current_round, _get_fine_tier_value
-        from accounts.action_logger import admin_action_log, regulator_action_log
-
-        admin_account = getattr(request.user, 'username', str(request.user))
-        now = timezone.now()
-
-        for app in queryset.filter(申请状态='pending'):
-            exec_r = _get_current_round()
-            val = _get_fine_tier_value(app.罚款档次)
-            RegulatorFineRecord.objects.create(
-                执行轮次=exec_r,
-                平台编号=app.平台编号,
-                平台名称=app.平台名称,
-                罚款档次=app.罚款档次,
-                申请记录=app,
-                监管成本数值=val,
-            )
-            app.申请状态 = 'approved'
-            app.管理员确认账号 = admin_account
-            app.管理员确认时间 = now
-            app.save(update_fields=['申请状态', '管理员确认账号', '管理员确认时间'])
-            tier_label = dict(RegulatorFineApplication.FINE_TIER_CHOICES).get(app.罚款档次, app.罚款档次)
-            admin_action_log(
-                f"管理员批准罚款申请 申请编号={app.pk} 平台编号={app.平台编号} 平台名称={app.平台名称} "
-                f"罚款档次={tier_label} 执行轮次={exec_r}"
-            )
-            regulator_action_log(
-                f"罚款申请 id={app.pk} 已通过 平台={app.平台名称} 平台编号={app.平台编号} "
-                f"罚款档次={tier_label} 执行轮次={exec_r}"
-            )
+        approval_actions.approve_regulator_fine_queryset(request, queryset)
 
     @admin.action(description='驳回：罚款申请不通过')
     def reject_fine_applications(self, request, queryset):
-        from django.utils import timezone
-        from accounts.action_logger import admin_action_log, regulator_action_log
-
-        admin_account = getattr(request.user, 'username', str(request.user))
-        now = timezone.now()
-
-        for app in queryset.filter(申请状态='pending'):
-            app.申请状态 = 'rejected'
-            app.管理员确认账号 = admin_account
-            app.管理员确认时间 = now
-            app.save(update_fields=['申请状态', '管理员确认账号', '管理员确认时间'])
-            tier_label = dict(RegulatorFineApplication.FINE_TIER_CHOICES).get(app.罚款档次, app.罚款档次)
-            admin_action_log(
-                f"管理员驳回罚款申请 申请编号={app.pk} 平台编号={app.平台编号} 平台名称={app.平台名称} "
-                f"罚款档次={tier_label}"
-            )
-            regulator_action_log(
-                f"罚款申请 id={app.pk} 已驳回 平台={app.平台名称} 平台编号={app.平台编号} "
-                f"罚款档次={tier_label}"
-            )
+        approval_actions.reject_regulator_fine_queryset(request, queryset)
 
 
 @admin.register(RegulatorFineRecord)
@@ -135,70 +101,11 @@ class RegulationActionApplicationAdmin(admin.ModelAdmin):
 
     @admin.action(description='审核通过：生成正式专项行动')
     def approve_applications(self, request, queryset):
-        from django.utils import timezone
-        from accounts.action_logger import regulator_action_log
-
-        admin_account = getattr(request.user, 'username', str(request.user))
-        now = timezone.now()
-
-        for app in queryset.filter(申请状态='pending'):
-            platform_ids = [int(pid) for pid in (app.整治平台编号列表 or [])]
-            platform_names = list(app.整治平台名称列表 or [])
-            start_round = int(app.当前轮次) + 1
-            duration = int(app.整治持续轮次 or 8)
-            end_round = start_round + duration - 1
-
-            app.申请状态 = 'approved'
-            app.管理员确认账号 = admin_account
-            app.管理员确认时间 = now
-            app.save(update_fields=['申请状态', '管理员确认账号', '管理员确认时间'])
-
-            for idx, pid in enumerate(platform_ids):
-                pname = platform_names[idx] if idx < len(platform_names) else f'平台{pid + 1}'
-                ra = RegulationAction.objects.create(
-                    行动编号=app.行动编号,
-                    当前轮次=app.当前轮次,
-                    整治平台编号=pid,
-                    整治平台名称=pname,
-                    整治持续轮次=duration,
-                    开始轮次=start_round,
-                    结束轮次=end_round,
-                    整治原因=app.整治原因,
-                    其他原因说明=app.其他原因说明,
-                    状态='active',
-                    申请记录=app,
-                )
-                PlatformSpotCheckResult.objects.create(
-                    专项行动=ra,
-                    行动编号=ra.行动编号,
-                    整治平台编号=ra.整治平台编号,
-                    整治平台名称=ra.整治平台名称,
-                    是否查看=False,
-                )
-
-            regulator_action_log(
-                f"管理员审核通过监管专项整治 action_id={app.行动编号} "
-                f"platforms={platform_names} round={app.当前轮次} "
-                f"active_range={start_round}-{end_round} admin={admin_account}"
-            )
+        approval_actions.approve_regulation_action_queryset(request, queryset)
 
     @admin.action(description='驳回：专项行动申请不通过')
     def reject_applications(self, request, queryset):
-        from django.utils import timezone
-        from accounts.action_logger import regulator_action_log
-
-        admin_account = getattr(request.user, 'username', str(request.user))
-        now = timezone.now()
-
-        for app in queryset.filter(申请状态='pending'):
-            app.申请状态 = 'rejected'
-            app.管理员确认账号 = admin_account
-            app.管理员确认时间 = now
-            app.save(update_fields=['申请状态', '管理员确认账号', '管理员确认时间'])
-            regulator_action_log(
-                f"管理员驳回监管专项整治申请 action_id={app.行动编号} "
-                f"platforms={app.整治平台名称列表 or []} round={app.当前轮次} admin={admin_account}"
-            )
+        approval_actions.reject_regulation_action_queryset(request, queryset)
 
 
 @admin.register(RegulationAction)
@@ -231,44 +138,11 @@ class PlatformPatrolApplicationAdmin(admin.ModelAdmin):
 
     @admin.action(description='审核通过：执行平台巡查并写入结果')
     def approve_patrol_applications(self, request, queryset):
-        from django.utils import timezone
-        from accounts.views import _execute_platform_patrol
-        from accounts.action_logger import admin_action_log
-
-        admin_account = getattr(request.user, 'username', str(request.user))
-        now = timezone.now()
-
-        for app in queryset.filter(申请状态='pending'):
-            _, err = _execute_platform_patrol(app)
-            if err:
-                self.message_user(request, f'申请 id={app.pk} 未通过：{err}', level='ERROR')
-                continue
-
-            app.申请状态 = 'approved'
-            app.管理员确认账号 = admin_account
-            app.管理员确认时间 = now
-            app.save(update_fields=['申请状态', '管理员确认账号', '管理员确认时间'])
-
-            admin_action_log(
-                f"管理员已批准监管机构-平台巡查申请 申请编号：{app.pk}、平台名称：{app.平台名称}、平台编号：{app.平台编号}"
-            )
+        approval_actions.approve_platform_patrol_queryset(request, queryset, message_user=self.message_user)
 
     @admin.action(description='驳回：平台巡查申请不通过')
     def reject_patrol_applications(self, request, queryset):
-        from django.utils import timezone
-        from accounts.action_logger import admin_action_log
-
-        admin_account = getattr(request.user, 'username', str(request.user))
-        now = timezone.now()
-
-        for app in queryset.filter(申请状态='pending'):
-            app.申请状态 = 'rejected'
-            app.管理员确认账号 = admin_account
-            app.管理员确认时间 = now
-            app.save(update_fields=['申请状态', '管理员确认账号', '管理员确认时间'])
-            admin_action_log(
-                f"管理员已驳回监管机构-平台巡查申请 申请编号：{app.pk}、平台名称：{app.平台名称}、平台编号：{app.平台编号}"
-            )
+        approval_actions.reject_platform_patrol_queryset(request, queryset)
 
 
 @admin.register(PlatformPatrolResult)
@@ -309,42 +183,29 @@ class PlatformGovernanceMeasureAdmin(admin.ModelAdmin):
 
     @admin.action(description='审核通过：使选中的治理措施生效')
     def approve_measures(self, request, queryset):
-        from django.utils import timezone
-        from accounts.action_logger import action_log
-        admin_account = getattr(request.user, 'username', str(request.user))
-        now = timezone.now()
-        for rec in queryset.filter(status='pending'):
-            rec.status = 'active'
-            rec.管理员确认账号 = admin_account
-            rec.管理员确认时间 = now
-            rec.save(update_fields=['status', '管理员确认账号', '管理员确认时间'])
-            action_log(
-                f"管理员确认治理措施生效 | 管理员={admin_account} measure_id={rec.pk} 平台={rec.平台} type={rec.措施类型} 生效轮次={rec.生效轮次} config_id={rec.config_id}"
-            )
+        approval_actions.approve_platform_governance_measure_queryset(request, queryset)
 
     @admin.action(description='驳回：选中的治理措施不通过')
     def reject_measures(self, request, queryset):
-        from django.utils import timezone
-        from accounts.action_logger import action_log
-        admin_account = getattr(request.user, 'username', str(request.user))
-        now = timezone.now()
-        for rec in queryset.filter(status='pending'):
-            rec.status = 'rejected'
-            rec.管理员确认账号 = admin_account
-            rec.管理员确认时间 = now
-            rec.save(update_fields=['status', '管理员确认账号', '管理员确认时间'])
-            action_log(
-                f"管理员驳回治理措施 | 管理员={admin_account} measure_id={rec.pk} 平台={rec.平台} type={rec.措施类型} config_id={rec.config_id}"
-            )
+        approval_actions.reject_platform_governance_measure_queryset(request, queryset)
 
 
 @admin.register(AccountHealthConfig)
 class AccountHealthConfigAdmin(admin.ModelAdmin):
     list_display = [
-        'id', 'platform_id', '初始健康分', '每次违规扣减分值',
+        'id', 'platform_id', 'status', '初始健康分', '每次违规扣减分值',
         '是否启用恢复机制', '恢复所需连续无违规轮次', '每次恢复分值', '创建时间',
     ]
-    list_filter = ['platform_id', '是否启用恢复机制']
+    list_filter = ['platform_id', 'status', '是否启用恢复机制']
+    actions = ['approve_health_configs', 'reject_health_configs']
+
+    @admin.action(description='审核通过：使选中的账号健康分配置生效')
+    def approve_health_configs(self, request, queryset):
+        approval_actions.approve_account_health_config_queryset(request, queryset)
+
+    @admin.action(description='驳回：选中的账号健康分配置不通过')
+    def reject_health_configs(self, request, queryset):
+        approval_actions.reject_account_health_config_queryset(request, queryset)
 
 
 @admin.register(AccountHealthLevelConfig)
@@ -377,24 +238,15 @@ class PlatformPerformanceSchemeAdmin(admin.ModelAdmin):
         '发布人账号', '创建时间',
     ]
     list_filter = ['平台', '生效轮次', '方案编号', 'status']
-    actions = ['confirm_scheme']
+    actions = ['confirm_scheme', 'reject_scheme']
 
     @admin.action(description='确认选中的绩效方案生效')
     def confirm_scheme(self, request, queryset):
-        from django.utils import timezone
-        from accounts.action_logger import action_log
-        admin_account = getattr(request.user, 'username', str(request.user))
-        now = timezone.now()
-        for scheme in queryset.filter(status='pending'):
-            scheme.status = 'active'
-            scheme.管理员确认账号 = admin_account
-            scheme.管理员确认时间 = now
-            scheme.save(update_fields=['status', '管理员确认账号', '管理员确认时间'])
-            action_log(
-                f"管理员确认绩效方案生效 | 管理员={admin_account} 方案ID={scheme.pk} "
-                f"平台={scheme.平台} 生效轮次={scheme.生效轮次} "
-                f"w1={scheme.w1_click} w2={scheme.w2_finish} w3={scheme.w3_collect} w4={scheme.w4_satisfaction}"
-            )
+        approval_actions.approve_platform_performance_scheme_queryset(request, queryset)
+
+    @admin.action(description='驳回：取消待审核的绩效方案')
+    def reject_scheme(self, request, queryset):
+        approval_actions.reject_platform_performance_scheme_queryset(request, queryset)
 
 
 @admin.register(Article)
@@ -515,29 +367,11 @@ class ClickbaitDetectionConfigAdmin(admin.ModelAdmin):
 
     @admin.action(description='审核通过：使选中的配置生效')
     def approve_configs(self, request, queryset):
-        from django.utils import timezone
-        from accounts.action_logger import action_log
-        admin_account = getattr(request.user, 'username', str(request.user))
-        now = timezone.now()
-        for cfg in queryset.filter(status='pending'):
-            cfg.status = 'active'
-            cfg.管理员确认账号 = admin_account
-            cfg.管理员确认时间 = now
-            cfg.save(update_fields=['status', '管理员确认账号', '管理员确认时间'])
-            action_log(f"管理员确认标题党检测配置生效 | 管理员={admin_account} config_id={cfg.pk} 平台={cfg.platform_id}")
+        approval_actions.approve_clickbait_config_queryset(request, queryset)
 
     @admin.action(description='驳回：选中的配置不通过')
     def reject_configs(self, request, queryset):
-        from django.utils import timezone
-        from accounts.action_logger import action_log
-        admin_account = getattr(request.user, 'username', str(request.user))
-        now = timezone.now()
-        for cfg in queryset.filter(status='pending'):
-            cfg.status = 'rejected'
-            cfg.管理员确认账号 = admin_account
-            cfg.管理员确认时间 = now
-            cfg.save(update_fields=['status', '管理员确认账号', '管理员确认时间'])
-            action_log(f"管理员驳回标题党检测配置 | 管理员={admin_account} config_id={cfg.pk} 平台={cfg.platform_id}")
+        approval_actions.reject_clickbait_config_queryset(request, queryset)
 
 
 @admin.register(ClickbaitDetectionResult)
@@ -554,29 +388,11 @@ class TrafficPenaltyConfigAdmin(admin.ModelAdmin):
 
     @admin.action(description='审核通过：使选中的配置生效')
     def approve_configs(self, request, queryset):
-        from django.utils import timezone
-        from accounts.action_logger import action_log
-        admin_account = getattr(request.user, 'username', str(request.user))
-        now = timezone.now()
-        for cfg in queryset.filter(status='pending'):
-            cfg.status = 'active'
-            cfg.管理员确认账号 = admin_account
-            cfg.管理员确认时间 = now
-            cfg.save(update_fields=['status', '管理员确认账号', '管理员确认时间'])
-            action_log(f"管理员确认流量惩罚配置生效 | 管理员={admin_account} config_id={cfg.pk} 平台={cfg.platform_id}")
+        approval_actions.approve_traffic_penalty_config_queryset(request, queryset)
 
     @admin.action(description='驳回：选中的配置不通过')
     def reject_configs(self, request, queryset):
-        from django.utils import timezone
-        from accounts.action_logger import action_log
-        admin_account = getattr(request.user, 'username', str(request.user))
-        now = timezone.now()
-        for cfg in queryset.filter(status='pending'):
-            cfg.status = 'rejected'
-            cfg.管理员确认账号 = admin_account
-            cfg.管理员确认时间 = now
-            cfg.save(update_fields=['status', '管理员确认账号', '管理员确认时间'])
-            action_log(f"管理员驳回流量惩罚配置 | 管理员={admin_account} config_id={cfg.pk} 平台={cfg.platform_id}")
+        approval_actions.reject_traffic_penalty_config_queryset(request, queryset)
 
 
 @admin.register(ArticleTraffic)
@@ -599,29 +415,11 @@ class UserReportConfigAdmin(admin.ModelAdmin):
 
     @admin.action(description='审核通过：使选中的配置生效')
     def approve_configs(self, request, queryset):
-        from django.utils import timezone
-        from accounts.action_logger import action_log
-        admin_account = getattr(request.user, 'username', str(request.user))
-        now = timezone.now()
-        for cfg in queryset.filter(status='pending'):
-            cfg.status = 'active'
-            cfg.管理员确认账号 = admin_account
-            cfg.管理员确认时间 = now
-            cfg.save(update_fields=['status', '管理员确认账号', '管理员确认时间'])
-            action_log(f"管理员确认用户举报配置生效 | 管理员={admin_account} config_id={cfg.pk} 平台={cfg.platform_id}")
+        approval_actions.approve_user_report_config_queryset(request, queryset)
 
     @admin.action(description='驳回：选中的配置不通过')
     def reject_configs(self, request, queryset):
-        from django.utils import timezone
-        from accounts.action_logger import action_log
-        admin_account = getattr(request.user, 'username', str(request.user))
-        now = timezone.now()
-        for cfg in queryset.filter(status='pending'):
-            cfg.status = 'rejected'
-            cfg.管理员确认账号 = admin_account
-            cfg.管理员确认时间 = now
-            cfg.save(update_fields=['status', '管理员确认账号', '管理员确认时间'])
-            action_log(f"管理员驳回用户举报配置 | 管理员={admin_account} config_id={cfg.pk} 平台={cfg.platform_id}")
+        approval_actions.reject_user_report_config_queryset(request, queryset)
 
 
 @admin.register(ArticleReport)
@@ -638,29 +436,11 @@ class RevenuePenaltyConfigAdmin(admin.ModelAdmin):
 
     @admin.action(description='审核通过：使选中的配置生效')
     def approve_configs(self, request, queryset):
-        from django.utils import timezone
-        from accounts.action_logger import action_log
-        admin_account = getattr(request.user, 'username', str(request.user))
-        now = timezone.now()
-        for cfg in queryset.filter(status='pending'):
-            cfg.status = 'active'
-            cfg.管理员确认账号 = admin_account
-            cfg.管理员确认时间 = now
-            cfg.save(update_fields=['status', '管理员确认账号', '管理员确认时间'])
-            action_log(f"管理员确认收益惩罚配置生效 | 管理员={admin_account} config_id={cfg.pk} 平台={cfg.platform_id}")
+        approval_actions.approve_revenue_penalty_config_queryset(request, queryset)
 
     @admin.action(description='驳回：选中的配置不通过')
     def reject_configs(self, request, queryset):
-        from django.utils import timezone
-        from accounts.action_logger import action_log
-        admin_account = getattr(request.user, 'username', str(request.user))
-        now = timezone.now()
-        for cfg in queryset.filter(status='pending'):
-            cfg.status = 'rejected'
-            cfg.管理员确认账号 = admin_account
-            cfg.管理员确认时间 = now
-            cfg.save(update_fields=['status', '管理员确认账号', '管理员确认时间'])
-            action_log(f"管理员驳回收益惩罚配置 | 管理员={admin_account} config_id={cfg.pk} 平台={cfg.platform_id}")
+        approval_actions.reject_revenue_penalty_config_queryset(request, queryset)
 
 
 @admin.register(ArticleRevenueSettlement)

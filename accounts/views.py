@@ -2702,33 +2702,12 @@ def end_round(request):
 
     用户端列表只查当前轮次，故等效于清空列表进入下一轮。可由管理员或脚本在用户们退出后调用。
     """
-    round_to_settle = _get_current_round()
-    # 目前平台编码沿用 0/1；后续扩展更多平台时，可改为从平台表/配置表读取
-    settled = []
-    settled_cycle_profit = []
-    for pid in (0, 1):
-        _recover_writer_health_for_platform(pid, round_to_settle)
-        # 先处理用户举报（若该轮启用），再做收益结算，保证后续惩罚链路可见。
-        _process_article_reports(pid, round_to_settle)
-        _settle_article_revenue(pid, round_to_settle)
-        cfg = _get_effective_profit_config(round_to_settle, pid) or ProfitWeightConfig.objects.order_by('-id').first()
-        period = int(getattr(cfg, '利润展示窗口轮数', 4) or 4)
-        period = max(1, period)
-        if round_to_settle % period == 0:
-            cycle_index = round_to_settle // period
-            start_round = round_to_settle - period + 1
-            rec = _settle_cycle_profit(pid, cycle_index, start_round, round_to_settle)
-            if rec:
-                settled_cycle_profit.append({'platform_id': pid, 'cycle_index': cycle_index})
-        settled.append({'platform_id': pid})
+    from accounts.round_ops import perform_end_round
 
-    SimulationRound.objects.filter(pk=1).update(当前轮次=F('当前轮次') + 1)
-    new_round = _get_current_round()
-    _run_regulation_auto_patrols_for_round_transition(round_to_settle, new_round)
-    action_log(
-        f"结束本轮 round={round_to_settle} -> {new_round} | 已文章收益结算={settled} "
-        f"| 周期利润结算={settled_cycle_profit}"
-    )
+    result = perform_end_round()
+    new_round = result['new_round']
+    settled = result['settled']
+    settled_cycle_profit = result['settled_cycle_profit']
     return JsonResponse({
         'ok': True,
         'current_round': new_round,

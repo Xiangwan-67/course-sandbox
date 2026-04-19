@@ -1,0 +1,274 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block title %}沙盘运营台 | {{ block.super }}{% endblock %}
+
+{% block content %}
+{% if messages %}
+<ul class="messagelist">
+  {% for message in messages %}
+  <li{% if message.tags %} class="{{ message.tags }}"{% endif %}>{{ message }}</li>
+  {% endfor %}
+</ul>
+{% endif %}
+<h1>沙盘运营台</h1>
+
+<section style="margin: 16px 0; padding: 12px; border: 1px solid #ccc; background: #f9f9f9;">
+  <h2 style="margin-top: 0;">模拟轮次</h2>
+  <p>当前轮次：<strong>{{ current_round }}</strong></p>
+  <form method="post" action="">
+    {% csrf_token %}
+    <input type="hidden" name="tab" value="{{ tab }}" />
+    <input type="hidden" name="op" value="end_round" />
+    <button type="submit" class="default" style="padding: 8px 16px;">结束本轮（结算收益并推进轮次）</button>
+  </form>
+  <p style="color: #666; font-size: 12px; margin-top: 8px;">与站点 POST /end-round/ 及 <code>manage.py end_round</code> 使用同一套逻辑。</p>
+</section>
+
+<style>
+  .sandbox-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0; border-bottom: 1px solid #ddd; padding-bottom: 8px; }
+  .sandbox-tabs a { padding: 6px 12px; text-decoration: none; border: 1px solid transparent; border-radius: 4px 4px 0 0; }
+  .sandbox-tabs a.active { background: #417690; color: #fff; border-color: #417690; }
+  .sandbox-tabs a:not(.active) { background: #eee; color: #333; }
+  .sandbox-table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
+  .sandbox-table th, .sandbox-table td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; vertical-align: top; }
+  .sandbox-table th { background: #f5f5f5; }
+  .sandbox-actions form { display: inline; margin-right: 4px; }
+</style>
+
+<div class="sandbox-tabs">
+  <a href="?tab=regulator" class="{% if tab == 'regulator' %}active{% endif %}">监管</a>
+  <a href="?tab=measure" class="{% if tab == 'measure' %}active{% endif %}">平台治理措施</a>
+  <a href="?tab=params" class="{% if tab == 'params' %}active{% endif %}">平台治理参数</a>
+  <a href="?tab=performance" class="{% if tab == 'performance' %}active{% endif %}">绩效方案</a>
+</div>
+
+{% if tab == 'regulator' %}
+  <h2>监管 — 待审核</h2>
+
+  <h3>监管专项整治</h3>
+  {% if regulation_applications %}
+  <table class="sandbox-table">
+    <thead><tr><th>ID</th><th>行动编号</th><th>轮次</th><th>原因</th><th>申请人</th><th>操作</th></tr></thead>
+    <tbody>
+    {% for row in regulation_applications %}
+      <tr>
+        <td>{{ row.id }}</td>
+        <td>{{ row.行动编号 }}</td>
+        <td>{{ row.当前轮次 }}</td>
+        <td>{{ row.整治原因 }}</td>
+        <td>{{ row.申请人账号 }}</td>
+        <td class="sandbox-actions">
+          <form method="post">{% csrf_token %}<input type="hidden" name="tab" value="regulator" /><input type="hidden" name="op" value="approve" /><input type="hidden" name="model" value="regulation_action_application" /><input type="hidden" name="pk" value="{{ row.pk }}" /><button type="submit" class="default">通过</button></form>
+          <form method="post">{% csrf_token %}<input type="hidden" name="tab" value="regulator" /><input type="hidden" name="op" value="reject" /><input type="hidden" name="model" value="regulation_action_application" /><input type="hidden" name="pk" value="{{ row.pk }}" /><button type="submit">驳回</button></form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p>暂无</p>{% endif %}
+
+  <h3 style="margin-top: 20px;">平台巡查</h3>
+  {% if patrol_applications %}
+  <table class="sandbox-table">
+    <thead><tr><th>ID</th><th>平台</th><th>巡查比例</th><th>轮次范围</th><th>申请人</th><th>操作</th></tr></thead>
+    <tbody>
+    {% for row in patrol_applications %}
+      <tr>
+        <td>{{ row.id }}</td>
+        <td>{{ row.平台名称 }} ({{ row.平台编号 }})</td>
+        <td>{{ row.巡查比例 }}</td>
+        <td>{{ row.起始轮次 }}–{{ row.终止轮次 }}</td>
+        <td>{{ row.申请人账号 }}</td>
+        <td class="sandbox-actions">
+          <form method="post">{% csrf_token %}<input type="hidden" name="tab" value="regulator" /><input type="hidden" name="op" value="approve" /><input type="hidden" name="model" value="platform_patrol_application" /><input type="hidden" name="pk" value="{{ row.pk }}" /><button type="submit" class="default">通过</button></form>
+          <form method="post">{% csrf_token %}<input type="hidden" name="tab" value="regulator" /><input type="hidden" name="op" value="reject" /><input type="hidden" name="model" value="platform_patrol_application" /><input type="hidden" name="pk" value="{{ row.pk }}" /><button type="submit">驳回</button></form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p>暂无</p>{% endif %}
+
+  <h3 style="margin-top: 20px;">监管罚款</h3>
+  {% if fine_applications %}
+  <table class="sandbox-table">
+    <thead><tr><th>ID</th><th>平台</th><th>档次</th><th>申请轮次</th><th>申请人</th><th>操作</th></tr></thead>
+    <tbody>
+    {% for row in fine_applications %}
+      <tr>
+        <td>{{ row.id }}</td>
+        <td>{{ row.平台名称 }}</td>
+        <td>{{ row.get_罚款档次_display }}</td>
+        <td>{{ row.申请轮次 }}</td>
+        <td>{{ row.申请人账号 }}</td>
+        <td class="sandbox-actions">
+          <form method="post">{% csrf_token %}<input type="hidden" name="tab" value="regulator" /><input type="hidden" name="op" value="approve" /><input type="hidden" name="model" value="regulator_fine_application" /><input type="hidden" name="pk" value="{{ row.pk }}" /><button type="submit" class="default">通过</button></form>
+          <form method="post">{% csrf_token %}<input type="hidden" name="tab" value="regulator" /><input type="hidden" name="op" value="reject" /><input type="hidden" name="model" value="regulator_fine_application" /><input type="hidden" name="pk" value="{{ row.pk }}" /><button type="submit">驳回</button></form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p>暂无</p>{% endif %}
+
+{% elif tab == 'measure' %}
+  <h2>平台治理措施 — 待审核</h2>
+  {% if measures %}
+  <table class="sandbox-table">
+    <thead><tr><th>ID</th><th>平台</th><th>类型</th><th>轮次</th><th>生效轮次</th><th>发布人</th><th>操作</th></tr></thead>
+    <tbody>
+    {% for row in measures %}
+      <tr>
+        <td>{{ row.id }}</td>
+        <td>{{ row.平台 }}</td>
+        <td>{{ row.get_措施类型_display }}</td>
+        <td>{{ row.轮次 }}</td>
+        <td>{{ row.生效轮次 }}</td>
+        <td>{{ row.发布人账号 }}</td>
+        <td class="sandbox-actions">
+          <form method="post">{% csrf_token %}<input type="hidden" name="tab" value="measure" /><input type="hidden" name="op" value="approve" /><input type="hidden" name="model" value="platform_governance_measure" /><input type="hidden" name="pk" value="{{ row.pk }}" /><button type="submit" class="default">通过</button></form>
+          <form method="post">{% csrf_token %}<input type="hidden" name="tab" value="measure" /><input type="hidden" name="op" value="reject" /><input type="hidden" name="model" value="platform_governance_measure" /><input type="hidden" name="pk" value="{{ row.pk }}" /><button type="submit">驳回</button></form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p>暂无</p>{% endif %}
+
+{% elif tab == 'params' %}
+  <h2>平台治理参数 — 待审核</h2>
+
+  <h3>标题党检测</h3>
+  {% if clickbait_configs %}
+  <table class="sandbox-table">
+    <thead><tr><th>ID</th><th>平台</th><th>X/Y</th><th>提交人</th><th>操作</th></tr></thead>
+    <tbody>
+    {% for row in clickbait_configs %}
+      <tr>
+        <td>{{ row.id }}</td>
+        <td>{{ row.platform_id }}</td>
+        <td>{{ row.标题夸张度阈值X }} / {{ row.内容相关度阈值Y }}</td>
+        <td>{{ row.提交人账号 }}</td>
+        <td class="sandbox-actions">
+          <form method="post">{% csrf_token %}<input type="hidden" name="tab" value="params" /><input type="hidden" name="op" value="approve" /><input type="hidden" name="model" value="clickbait_detection_config" /><input type="hidden" name="pk" value="{{ row.pk }}" /><button type="submit" class="default">通过</button></form>
+          <form method="post">{% csrf_token %}<input type="hidden" name="tab" value="params" /><input type="hidden" name="op" value="reject" /><input type="hidden" name="model" value="clickbait_detection_config" /><input type="hidden" name="pk" value="{{ row.pk }}" /><button type="submit">驳回</button></form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p>暂无</p>{% endif %}
+
+  <h3 style="margin-top: 16px;">流量惩罚</h3>
+  {% if traffic_configs %}
+  <table class="sandbox-table">
+    <thead><tr><th>ID</th><th>平台</th><th>α</th><th>提交人</th><th>操作</th></tr></thead>
+    <tbody>
+    {% for row in traffic_configs %}
+      <tr>
+        <td>{{ row.id }}</td>
+        <td>{{ row.platform_id }}</td>
+        <td>{{ row.降权系数alpha }}</td>
+        <td>{{ row.提交人账号 }}</td>
+        <td class="sandbox-actions">
+          <form method="post">{% csrf_token %}<input type="hidden" name="tab" value="params" /><input type="hidden" name="op" value="approve" /><input type="hidden" name="model" value="traffic_penalty_config" /><input type="hidden" name="pk" value="{{ row.pk }}" /><button type="submit" class="default">通过</button></form>
+          <form method="post">{% csrf_token %}<input type="hidden" name="tab" value="params" /><input type="hidden" name="op" value="reject" /><input type="hidden" name="model" value="traffic_penalty_config" /><input type="hidden" name="pk" value="{{ row.pk }}" /><button type="submit">驳回</button></form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p>暂无</p>{% endif %}
+
+  <h3 style="margin-top: 16px;">用户举报机制</h3>
+  {% if report_configs %}
+  <table class="sandbox-table">
+    <thead><tr><th>ID</th><th>平台</th><th>阈值</th><th>审核方式</th><th>提交人</th><th>操作</th></tr></thead>
+    <tbody>
+    {% for row in report_configs %}
+      <tr>
+        <td>{{ row.id }}</td>
+        <td>{{ row.platform_id }}</td>
+        <td>{{ row.举报触发阈值 }}</td>
+        <td>{{ row.get_审核方式_display }}</td>
+        <td>{{ row.提交人账号 }}</td>
+        <td class="sandbox-actions">
+          <form method="post">{% csrf_token %}<input type="hidden" name="tab" value="params" /><input type="hidden" name="op" value="approve" /><input type="hidden" name="model" value="user_report_config" /><input type="hidden" name="pk" value="{{ row.pk }}" /><button type="submit" class="default">通过</button></form>
+          <form method="post">{% csrf_token %}<input type="hidden" name="tab" value="params" /><input type="hidden" name="op" value="reject" /><input type="hidden" name="model" value="user_report_config" /><input type="hidden" name="pk" value="{{ row.pk }}" /><button type="submit">驳回</button></form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p>暂无</p>{% endif %}
+
+  <h3 style="margin-top: 16px;">收益惩罚</h3>
+  {% if revenue_configs %}
+  <table class="sandbox-table">
+    <thead><tr><th>ID</th><th>平台</th><th>β</th><th>提交人</th><th>操作</th></tr></thead>
+    <tbody>
+    {% for row in revenue_configs %}
+      <tr>
+        <td>{{ row.id }}</td>
+        <td>{{ row.platform_id }}</td>
+        <td>{{ row.惩罚系数beta }}</td>
+        <td>{{ row.提交人账号 }}</td>
+        <td class="sandbox-actions">
+          <form method="post">{% csrf_token %}<input type="hidden" name="tab" value="params" /><input type="hidden" name="op" value="approve" /><input type="hidden" name="model" value="revenue_penalty_config" /><input type="hidden" name="pk" value="{{ row.pk }}" /><button type="submit" class="default">通过</button></form>
+          <form method="post">{% csrf_token %}<input type="hidden" name="tab" value="params" /><input type="hidden" name="op" value="reject" /><input type="hidden" name="model" value="revenue_penalty_config" /><input type="hidden" name="pk" value="{{ row.pk }}" /><button type="submit">驳回</button></form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p>暂无</p>{% endif %}
+
+  <h3 style="margin-top: 16px;">账号健康分</h3>
+  {% if health_configs %}
+  <table class="sandbox-table">
+    <thead><tr><th>ID</th><th>平台</th><th>初始分</th><th>扣减</th><th>提交人</th><th>操作</th></tr></thead>
+    <tbody>
+    {% for row in health_configs %}
+      <tr>
+        <td>{{ row.id }}</td>
+        <td>{{ row.platform_id }}</td>
+        <td>{{ row.初始健康分 }}</td>
+        <td>{{ row.每次违规扣减分值 }}</td>
+        <td>{{ row.提交人账号 }}</td>
+        <td class="sandbox-actions">
+          <form method="post">{% csrf_token %}<input type="hidden" name="tab" value="params" /><input type="hidden" name="op" value="approve" /><input type="hidden" name="model" value="account_health_config" /><input type="hidden" name="pk" value="{{ row.pk }}" /><button type="submit" class="default">通过</button></form>
+          <form method="post">{% csrf_token %}<input type="hidden" name="tab" value="params" /><input type="hidden" name="op" value="reject" /><input type="hidden" name="model" value="account_health_config" /><input type="hidden" name="pk" value="{{ row.pk }}" /><button type="submit">驳回</button></form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p>暂无</p>{% endif %}
+
+{% elif tab == 'performance' %}
+  <h2>绩效方案 — 待审核</h2>
+  {% if performance_schemes %}
+  <table class="sandbox-table">
+    <thead><tr><th>ID</th><th>平台</th><th>生效轮次</th><th>方案</th><th>发布人</th><th>操作</th></tr></thead>
+    <tbody>
+    {% for row in performance_schemes %}
+      <tr>
+        <td>{{ row.id }}</td>
+        <td>{{ row.平台 }}</td>
+        <td>{{ row.生效轮次 }}</td>
+        <td>{{ row.get_方案编号_display }}</td>
+        <td>{{ row.发布人账号 }}</td>
+        <td class="sandbox-actions">
+          <form method="post">{% csrf_token %}<input type="hidden" name="tab" value="performance" /><input type="hidden" name="op" value="approve" /><input type="hidden" name="model" value="platform_performance_scheme" /><input type="hidden" name="pk" value="{{ row.pk }}" /><button type="submit" class="default">通过</button></form>
+          <form method="post">{% csrf_token %}<input type="hidden" name="tab" value="performance" /><input type="hidden" name="op" value="reject" /><input type="hidden" name="model" value="platform_performance_scheme" /><input type="hidden" name="pk" value="{{ row.pk }}" /><button type="submit">驳回</button></form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p>暂无</p>{% endif %}
+{% endif %}
+
+<p style="margin-top: 24px;"><a href="{% url 'admin:index' %}">返回管理首页</a></p>
+{% endblock %}
