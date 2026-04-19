@@ -114,6 +114,9 @@
     |
     <a href="{% url 'accounts:logout' %}">退出登录</a>
   </p>
+  {% if regulator_jurisdiction_empty %}
+  <p style="color:#b00;font-weight:bold;">当前账号未配置负责平台，请联系管理员在后台或「账号管理.xlsx」监管机构 Sheet 中设置「负责平台」列。</p>
+  {% endif %}
 
   <section class="monitor-section">
     <h2>平台监测系统</h2>

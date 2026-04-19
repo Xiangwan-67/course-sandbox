@@ -3,3 +3,6 @@ test/reports/
 **/__pycache__/
 *.pyc
 .pytest_cache/
+*.sqlite3
+*.log
+~$*.xlsx

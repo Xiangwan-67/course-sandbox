@@ -1,6 +1,7 @@
 from django.contrib import admin
 
 from accounts import approval_actions
+from accounts.platform_scope import validate_regulator_platform_list
 from .models import (
     WriterAccount, UserAccount, PlatformAccount, RegulatorAccount,
     RegulationActionApplication, RegulationAction, PlatformSpotCheckResult,
@@ -49,7 +50,16 @@ class PlatformAccountAdmin(admin.ModelAdmin):
 
 @admin.register(RegulatorAccount)
 class RegulatorAccountAdmin(admin.ModelAdmin):
-    list_display = ['id', '账号', '密码']
+    list_display = ['id', '账号', '密码', '负责平台编号列表']
+
+    def save_model(self, request, obj, form, change):
+        raw = list(getattr(obj, '负责平台编号列表', None) or [])
+        err = validate_regulator_platform_list(raw, exclude_pk=obj.pk if obj.pk else None)
+        if err:
+            from django.contrib import messages
+            messages.error(request, err)
+            return
+        super().save_model(request, obj, form, change)
 
 
 @admin.register(AdminBaseConfig)

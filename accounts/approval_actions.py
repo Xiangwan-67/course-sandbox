@@ -7,6 +7,7 @@ from typing import Callable, Optional, Tuple
 from django.utils import timezone
 
 from accounts.action_logger import action_log, admin_action_log, regulator_action_log
+from accounts.platform_scope import jurisdiction_for_regulator_account
 from accounts.models import (
     PlatformPatrolApplication,
     PlatformSpotCheckResult,
@@ -32,6 +33,12 @@ def approve_regulator_fine_queryset(request, queryset) -> None:
     admin_account = _admin_account(request)
     now = _now()
     for app in queryset.filter(申请状态='pending'):
+        j = jurisdiction_for_regulator_account((app.申请人账号 or '').strip())
+        if not j or int(app.平台编号) not in j:
+            admin_action_log(
+                f"管理员批准罚款申请已跳过 申请编号={app.pk} 原因=申请人负责平台与平台编号不符 applicant={app.申请人账号!r}"
+            )
+            continue
         exec_r = _get_current_round()
         val = _get_fine_tier_value(app.罚款档次)
         RegulatorFineRecord.objects.create(
@@ -83,6 +90,12 @@ def approve_regulation_action_queryset(request, queryset) -> None:
     now = _now()
     for app in queryset.filter(申请状态='pending'):
         platform_ids = [int(pid) for pid in (app.整治平台编号列表 or [])]
+        j = jurisdiction_for_regulator_account((app.申请人账号 or '').strip())
+        if not j or not set(platform_ids).issubset(j):
+            regulator_action_log(
+                f"管理员审核专项整治已跳过 action_id={app.行动编号} 原因=与申请人负责平台不符 applicant={app.申请人账号!r}"
+            )
+            continue
         platform_names = list(app.整治平台名称列表 or [])
         start_round = int(app.当前轮次) + 1
         duration = int(app.整治持续轮次 or 8)
@@ -145,6 +158,11 @@ def approve_platform_patrol_queryset(request, queryset, message_user: Optional[C
     admin_account = _admin_account(request)
     now = _now()
     for app in queryset.filter(申请状态='pending'):
+        j = jurisdiction_for_regulator_account((app.申请人账号 or '').strip())
+        if not j or int(app.平台编号) not in j:
+            if message_user:
+                message_user(request, f'申请 id={app.pk} 与申请人负责平台不符，已跳过', level='ERROR')
+            continue
         _, err = _execute_platform_patrol(app)
         if err:
             if message_user:
@@ -360,6 +378,9 @@ def approve_single_platform_patrol(request, pk: int) -> Tuple[bool, str]:
     app = PlatformPatrolApplication.objects.filter(pk=pk, 申请状态='pending').first()
     if not app:
         return False, '未找到待审核的巡查申请'
+    j = jurisdiction_for_regulator_account((app.申请人账号 or '').strip())
+    if not j or int(app.平台编号) not in j:
+        return False, '申请人负责平台与申请平台不符，无法批准'
     from accounts.views import _execute_platform_patrol
 
     admin_account = _admin_account(request)

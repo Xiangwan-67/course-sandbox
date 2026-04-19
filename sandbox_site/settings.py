@@ -118,3 +118,11 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+
+# 沙盘平台目录：(平台编号 int, 显示名)。与账号管理.xlsx 中平台编号一致。
+SANDBOX_PLATFORMS = (
+    (0, '平台1'),
+    (1, '平台2'),
+    (2, '平台3'),
+    (3, '平台4'),
+)

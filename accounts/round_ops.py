@@ -16,6 +16,7 @@ def perform_end_round() -> Dict[str, Any]:
     # 延迟导入，避免 accounts.views 与 round_ops 循环依赖
     from accounts.action_logger import action_log
     from accounts.models import ProfitWeightConfig, SimulationRound
+    from accounts.platform_scope import valid_platform_ids
     from accounts.views import (
         _get_current_round,
         _get_effective_profit_config,
@@ -30,7 +31,7 @@ def perform_end_round() -> Dict[str, Any]:
     round_to_settle = _get_current_round()
     settled: List[Dict[str, Any]] = []
     settled_cycle_profit: List[Dict[str, Any]] = []
-    for pid in (0, 1):
+    for pid in sorted(valid_platform_ids()):
         _recover_writer_health_for_platform(pid, round_to_settle)
         _process_article_reports(pid, round_to_settle)
         _settle_article_revenue(pid, round_to_settle)

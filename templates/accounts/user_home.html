@@ -29,8 +29,9 @@
 
     <p style="margin-top: 1rem;">选择平台进入：</p>
     <div class="platforms">
-        <div class="platform-icon" data-platform="0" title="平台1">平台1</div>
-        <div class="platform-icon" data-platform="1" title="平台2">平台2</div>
+        {% for p in platform_choices %}
+        <div class="platform-icon" data-platform="{{ p.id }}" title="{{ p.name }}">{{ p.name }}</div>
+        {% endfor %}
     </div>
 
     <div class="modal-mask" id="switch_modal">

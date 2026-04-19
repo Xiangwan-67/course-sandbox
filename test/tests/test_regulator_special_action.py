@@ -31,7 +31,7 @@ def regulator_log_path(settings) -> Path:
 def client_regulator_logged_in(client, db):
     RegulatorAccount.objects.update_or_create(
         账号="pytest_regulator_0",
-        defaults={"密码": "pytest"},
+        defaults={"密码": "pytest", "负责平台编号列表": [0, 1]},
     )
     r = client.post("/", {"account": "pytest_regulator_0", "password": "pytest"})
     assert r.status_code in (200, 302)
@@ -96,6 +96,10 @@ def test_regulator_submit_blocked_when_platform_under_regulation(client_regulato
 
 @pytest.mark.django_db
 def test_admin_approve_application_creates_formal_records(action_log_path, regulator_log_path):
+    RegulatorAccount.objects.update_or_create(
+        账号="pytest_regulator_0",
+        defaults={"密码": "pytest", "负责平台编号列表": [0, 1]},
+    )
     app = RegulationActionApplication.objects.create(
         行动编号="0003",
         当前轮次=3,
@@ -153,3 +157,20 @@ def test_admin_reject_application_no_formal_record(regulator_log_path):
     assert app.管理员确认账号 == "pytest_admin"
     assert RegulationAction.objects.filter(行动编号="0008").count() == 0
     assert "管理员驳回监管专项整治申请 action_id=0008" in _read(regulator_log_path)
+
+
+@pytest.mark.django_db
+def test_regulator_submit_rejected_when_platform_not_in_jurisdiction(client_regulator_logged_in):
+    """所选平台不在负责范围内时拒绝提交。"""
+    client = client_regulator_logged_in
+    SimulationRound.objects.update_or_create(pk=1, defaults={"当前轮次": 3})
+    RegulatorAccount.objects.filter(账号="pytest_regulator_0").update(负责平台编号列表=[0])
+
+    r = client.post(
+        "/regulator/special-action/submit/",
+        content_type="application/json",
+        data='{"platform_ids":[0,1],"duration_rounds":8,"reason":"定期整治","reason_other":""}',
+    )
+    assert r.status_code == 400
+    assert "负责范围" in (r.json().get("error") or "")
+    assert RegulationActionApplication.objects.count() == 0

@@ -57,6 +57,8 @@ class RegulatorAccount(models.Model):
     """监管机构账号：用于登录监管端页面。"""
     账号 = models.CharField(max_length=64, unique=True)
     密码 = models.CharField(max_length=128)
+    # 负责平台编号列表，如 [0, 1]；与 Excel「负责平台」列一致，辖区互斥由 Admin/导入校验
+    负责平台编号列表 = models.JSONField(default=list, blank=True)
 
     class Meta:
         db_table = '监管机构账号'

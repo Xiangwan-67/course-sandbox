@@ -28,8 +28,13 @@ from accounts.models import (
     UserReportConfig, ArticleReport,
     RevenuePenaltyConfig, ArticleRevenueSettlement,
 )
-
-PLATFORM_NAMES = {0: '平台1', 1: '平台2'}
+from accounts.platform_scope import (
+    all_platform_choices as _all_platform_choices,
+    default_platform_id,
+    jurisdiction_for_regulator_account,
+    normalize_platform_id as _normalize_platform_id,
+    platform_name as _platform_name,
+)
 
 _SANDBOX_SQLITE_WRITE_LOCK = threading.Lock()
 
@@ -187,7 +192,7 @@ def writer_notices(request):
         row.is_unread = not row.是否已读
     return render(request, 'accounts/writer_notices.html', {
         'name': account,
-        'platform_name': PLATFORM_NAMES.get(writer_platform, '平台1'),
+        'platform_name': _platform_name(writer_platform),
         'current_round': current_round,
         'notices': notices,
     })
@@ -241,13 +246,14 @@ def user_home(request):
         return redirect('accounts:login')
     try:
         user = UserAccount.objects.get(账号=account)
-        current_platform = user.所属平台 if user.所属平台 in (0, 1) else 0
+        current_platform = _normalize_platform_id(user.所属平台, default=default_platform_id())
     except UserAccount.DoesNotExist:
-        current_platform = 0
+        current_platform = default_platform_id()
     return render(request, 'accounts/user_home.html', {
         'name': account,
         'current_platform': current_platform,
-        'platform_name': PLATFORM_NAMES.get(current_platform, '平台1'),
+        'platform_name': _platform_name(current_platform),
+        'platform_choices': _all_platform_choices(),
     })
 
 
@@ -431,7 +437,7 @@ def platform_home(request):
     return render(request, 'accounts/platform_home.html', {
         'name': account,
         'platform_id': platform_id,
-        'platform_name': PLATFORM_NAMES.get(platform_id, '平台1'),
+        'platform_name': _platform_name(platform_id),
         'current_round': current_round,
         'profit_period': period,
         'current_cycle': current_cycle,
@@ -594,7 +600,7 @@ def platform_round_result(request):
     return render(request, 'accounts/platform_round_result.html', {
         'name': account,
         'platform_id': platform_id,
-        'platform_name': PLATFORM_NAMES.get(platform_id, '平台1'),
+        'platform_name': _platform_name(platform_id),
         'current_round': current_round,
         'target_round': target_round,
         'stats': stats,
@@ -602,11 +608,13 @@ def platform_round_result(request):
     })
 
 
-def _regulator_monitoring_boxes(current_round: int):
+def _regulator_monitoring_boxes(current_round: int, jurisdiction):
     """监管主页「平台监测系统」各平台框：取该平台最新一条已落库的 PlatformPatrolResult。"""
     boxes = []
     for item in _all_platform_choices():
         pid = item['id']
+        if jurisdiction is not None and pid not in jurisdiction:
+            continue
         latest = (
             PlatformPatrolResult.objects.filter(平台编号=pid)
             .order_by('-创建时间', '-id')
@@ -640,12 +648,20 @@ def _regulator_monitoring_boxes(current_round: int):
     return boxes
 
 
-def _regulator_progress_tables(current_round: int):
+def _regulator_progress_tables(current_round: int, jurisdiction):
     """拆分为进行中 / 已完成 表格数据；并同步过期状态、补建抽查结果行。"""
     _sync_regulation_actions_finished(current_round)
     ongoing_rows = []
     completed_rows = []
+    if jurisdiction is not None and not jurisdiction:
+        return {
+            'ongoing_rows': [],
+            'completed_rows': [],
+            'ongoing_count': 0,
+        }
     qs = RegulationAction.objects.all().order_by('-开始轮次', '-id')
+    if jurisdiction is not None:
+        qs = qs.filter(整治平台编号__in=list(jurisdiction))
     for ra in qs:
         start = int(ra.开始轮次)
         end = int(ra.结束轮次)
@@ -684,11 +700,14 @@ def _regulator_progress_tables(current_round: int):
             'spot_check_id': None,
         })
 
-    ongoing_count = RegulationAction.objects.filter(
+    ongoing_qs = RegulationAction.objects.filter(
         状态='active',
         开始轮次__lte=current_round,
         结束轮次__gte=current_round,
-    ).count()
+    )
+    if jurisdiction is not None:
+        ongoing_qs = ongoing_qs.filter(整治平台编号__in=list(jurisdiction))
+    ongoing_count = ongoing_qs.count()
 
     return {
         'ongoing_rows': ongoing_rows,
@@ -705,14 +724,16 @@ def regulator_home(request):
         return redirect('accounts:login')
 
     current_round = _get_current_round()
-    progress = _regulator_progress_tables(current_round)
+    jurisdiction = jurisdiction_for_regulator_account(account)
+    progress = _regulator_progress_tables(current_round, jurisdiction)
     return render(request, 'accounts/regulator_home.html', {
         'name': account,
         'current_round': current_round,
         'ongoing_rows': progress['ongoing_rows'],
         'completed_rows': progress['completed_rows'],
         'ongoing_count': progress['ongoing_count'],
-        'monitoring_boxes': _regulator_monitoring_boxes(current_round),
+        'monitoring_boxes': _regulator_monitoring_boxes(current_round, jurisdiction),
+        'regulator_jurisdiction_empty': len(jurisdiction) == 0,
     })
 
 
@@ -724,14 +745,17 @@ def regulator_platform_patrol(request):
         return redirect('accounts:login')
 
     current_round = _get_current_round()
-    raw_pid = request.GET.get('platform_id', '0')
+    jurisdiction = jurisdiction_for_regulator_account(account)
+    if not jurisdiction:
+        return redirect('accounts:regulator_home')
+    raw_pid = request.GET.get('platform_id', str(min(jurisdiction)))
     try:
         platform_id = int(raw_pid)
     except (TypeError, ValueError):
-        platform_id = 0
-    valid_ids = {item['id'] for item in _all_platform_choices()}
+        platform_id = min(jurisdiction)
+    valid_ids = {item['id'] for item in _all_platform_choices()} & set(jurisdiction)
     if platform_id not in valid_ids:
-        platform_id = 0
+        platform_id = min(jurisdiction)
     pname = _platform_name(platform_id)
     patrol_pending = PlatformPatrolApplication.objects.filter(
         平台编号=platform_id, 申请状态='pending'
@@ -756,6 +780,10 @@ def platform_spot_check_open(request, pk: int):
     if not spot:
         return redirect('accounts:regulator_home')
 
+    jurisdiction = jurisdiction_for_regulator_account(account)
+    if int(spot.整治平台编号) not in jurisdiction:
+        return redirect('accounts:regulator_home')
+
     return redirect('accounts:platform_spot_check_detail', pk=pk)
 
 
@@ -769,6 +797,10 @@ def platform_spot_check_detail(request, pk: int):
 
     spot = PlatformSpotCheckResult.objects.filter(pk=pk).select_related('专项行动').first()
     if not spot:
+        return redirect('accounts:regulator_home')
+
+    jurisdiction = jurisdiction_for_regulator_account(account)
+    if int(spot.整治平台编号) not in jurisdiction:
         return redirect('accounts:regulator_home')
 
     ra = spot.专项行动
@@ -820,8 +852,11 @@ def regulator_special_action(request):
         return redirect('accounts:login')
 
     current_round = _get_current_round()
+    jurisdiction = jurisdiction_for_regulator_account(account)
     platform_items = []
     for item in _all_platform_choices():
+        if item['id'] not in jurisdiction:
+            continue
         is_active = _is_platform_under_regulation(item['id'], current_round)
         platform_items.append({
             'id': item['id'],
@@ -830,9 +865,13 @@ def regulator_special_action(request):
             'status_text': '整治中' if is_active else '可选',
         })
 
-    latest_applications = list(
-        RegulationActionApplication.objects.order_by('-创建时间', '-id')[:20]
-    )
+    latest_applications = []
+    for app in RegulationActionApplication.objects.order_by('-创建时间', '-id')[:80]:
+        ids = list(app.整治平台编号列表 or [])
+        if set(ids) & set(jurisdiction):
+            latest_applications.append(app)
+        if len(latest_applications) >= 20:
+            break
     return render(request, 'accounts/regulator_special_action.html', {
         'name': account,
         'current_round': current_round,
@@ -884,6 +923,12 @@ def regulator_special_action_submit(request):
     valid_platform_ids = {item['id'] for item in _all_platform_choices()}
     if any(pid not in valid_platform_ids for pid in selected_platform_ids):
         return JsonResponse({'error': '整治平台编号非法'}, status=400)
+
+    jurisdiction = jurisdiction_for_regulator_account(account)
+    if not jurisdiction:
+        return JsonResponse({'error': '当前账号未配置负责平台，请联系管理员。'}, status=403)
+    if not set(selected_platform_ids).issubset(jurisdiction):
+        return JsonResponse({'error': '只能选择您负责范围内的平台'}, status=400)
 
     try:
         duration_rounds = int(payload.get('duration_rounds') or 8)
@@ -970,6 +1015,12 @@ def regulator_platform_patrol_submit(request):
     if platform_id not in valid_platform_ids:
         return JsonResponse({'error': '平台编号非法'}, status=400)
 
+    jurisdiction = jurisdiction_for_regulator_account(account)
+    if not jurisdiction:
+        return JsonResponse({'error': '当前账号未配置负责平台，请联系管理员。'}, status=403)
+    if platform_id not in jurisdiction:
+        return JsonResponse({'error': '该平台不在您的负责范围内'}, status=400)
+
     try:
         patrol_ratio = Decimal(str(payload.get('patrol_ratio', '0.5')))
     except Exception:
@@ -1039,6 +1090,12 @@ def regulator_fine_submit(request):
     valid_platform_ids = {item['id'] for item in _all_platform_choices()}
     if platform_id not in valid_platform_ids:
         return JsonResponse({'error': '平台编号非法'}, status=400)
+
+    jurisdiction = jurisdiction_for_regulator_account(account)
+    if not jurisdiction:
+        return JsonResponse({'error': '当前账号未配置负责平台，请联系管理员。'}, status=403)
+    if platform_id not in jurisdiction:
+        return JsonResponse({'error': '该平台不在您的负责范围内'}, status=400)
 
     tier = (payload.get('fine_tier') or '').strip()
     valid_tiers = {c[0] for c in RegulatorFineApplication.FINE_TIER_CHOICES}
@@ -1128,7 +1185,7 @@ def platform_governance(request):
     return render(request, 'accounts/platform_governance.html', {
         'name': account,
         'platform_id': platform_id,
-        'platform_name': PLATFORM_NAMES.get(platform_id, '平台1'),
+        'platform_name': _platform_name(platform_id),
         'current_round': current_round,
         'measures': measures,
     })
@@ -1296,7 +1353,7 @@ def platform_clickbait_detection(request):
     return render(request, 'accounts/platform_clickbait_detection.html', {
         'name': account,
         'platform_id': platform_id,
-        'platform_name': PLATFORM_NAMES.get(platform_id, '平台1'),
+        'platform_name': _platform_name(platform_id),
         'current_round': current_round,
         'config': cfg,
         'is_published': is_published,
@@ -1332,7 +1389,7 @@ def platform_traffic_penalty(request):
     return render(request, 'accounts/platform_traffic_penalty.html', {
         'name': account,
         'platform_id': platform_id,
-        'platform_name': PLATFORM_NAMES.get(platform_id, '平台1'),
+        'platform_name': _platform_name(platform_id),
         'current_round': current_round,
         'config': cfg,
         'is_published': is_published,
@@ -1390,7 +1447,7 @@ def platform_report(request):
     return render(request, 'accounts/platform_report.html', {
         'name': account,
         'platform_id': platform_id,
-        'platform_name': PLATFORM_NAMES.get(platform_id, '平台1'),
+        'platform_name': _platform_name(platform_id),
         'current_round': current_round,
         'config': cfg,
         'is_published': is_published,
@@ -1452,7 +1509,7 @@ def platform_revenue_penalty(request):
     return render(request, 'accounts/platform_revenue_penalty.html', {
         'name': account,
         'platform_id': platform_id,
-        'platform_name': PLATFORM_NAMES.get(platform_id, '平台1'),
+        'platform_name': _platform_name(platform_id),
         'current_round': current_round,
         'config': cfg,
         'is_published': is_published,
@@ -1513,7 +1570,7 @@ def platform_performance(request):
     return render(request, 'accounts/platform_performance.html', {
         'name': account,
         'platform_id': platform_id,
-        'platform_name': PLATFORM_NAMES.get(platform_id, '平台1'),
+        'platform_name': _platform_name(platform_id),
         'current_round': current_round,
         'active_scheme': active_scheme,
         'pending_scheme': pending_scheme,
@@ -1574,20 +1631,20 @@ def user_platform_check(request):
         return JsonResponse({'error': '未登录或非用户'}, status=403)
     account = request.session.get('account', '')
     try:
-        target = int(request.GET.get('target_platform', 0))
+        target = int(request.GET.get('target_platform', default_platform_id()))
     except (TypeError, ValueError):
-        target = 0
-    target = 0 if target != 1 else 1
+        target = default_platform_id()
+    target = _normalize_platform_id(target, default=default_platform_id())
     try:
         user = UserAccount.objects.get(账号=account)
-        current = user.所属平台 if user.所属平台 in (0, 1) else 0
+        current = _normalize_platform_id(user.所属平台, default=default_platform_id())
     except UserAccount.DoesNotExist:
-        current = 0
+        current = default_platform_id()
     match = current == target
     return JsonResponse({
         'match': match,
         'current_platform': current,
-        'current_platform_name': PLATFORM_NAMES.get(current, '平台1'),
+        'current_platform_name': _platform_name(current),
         'target_platform': target,
     })
 
@@ -1596,15 +1653,6 @@ def _get_current_round():
     """获取当前模拟轮次（从表「模拟轮次」读取，无行则创建 id=1 且 当前轮次=1）。"""
     obj, _ = SimulationRound.objects.get_or_create(pk=1, defaults={'当前轮次': 1})
     return obj.当前轮次
-
-
-def _platform_name(platform_id: int) -> str:
-    return PLATFORM_NAMES.get(platform_id, f'平台{platform_id + 1}')
-
-
-def _all_platform_choices():
-    """当前系统内可供整治的平台列表。"""
-    return [{'id': 0, 'name': _platform_name(0)}, {'id': 1, 'name': _platform_name(1)}]
 
 
 def _sync_regulation_actions_finished(current_round: int):
@@ -1802,7 +1850,7 @@ def _submit_user_report(user_account: str, article_id: int, platform_id: int, ro
     article = Article.objects.filter(pk=article_id).first()
     writer_account = getattr(article, '写手账号', '')
     action_log(
-        f"{PLATFORM_NAMES.get(platform_id, f'平台{platform_id}')}用户{user_account}"
+        f"{_platform_name(platform_id)}用户{user_account}"
         f"在{round_num}轮次举报了{writer_account}写手的{article_id}文章 "
         f"report_id={rec.pk}"
     )
@@ -2451,15 +2499,15 @@ def user_switch_platform(request):
         return JsonResponse({'error': '未登录或非用户'}, status=403)
     account = request.session.get('account', '')
     try:
-        target = int(request.POST.get('target_platform', 0))
+        target = int(request.POST.get('target_platform', default_platform_id()))
     except (TypeError, ValueError):
-        target = 0
-    target = 0 if target != 1 else 1
+        target = default_platform_id()
+    target = _normalize_platform_id(target, default=default_platform_id())
     try:
-        from_platform = int(request.POST.get('from_platform', 0))
+        from_platform = int(request.POST.get('from_platform', default_platform_id()))
     except (TypeError, ValueError):
-        from_platform = 0
-    from_platform = 0 if from_platform != 1 else 1
+        from_platform = default_platform_id()
+    from_platform = _normalize_platform_id(from_platform, default=default_platform_id())
     switch_reason = (request.POST.get('switch_reason') or '').strip()
     if not switch_reason:
         return JsonResponse({'error': '请选择切换平台原因'}, status=400)
@@ -2478,8 +2526,8 @@ def user_switch_platform(request):
     user.所属平台 = target
     user.禁止登录截止时间 = timezone.now() + timedelta(minutes=1)
     user.save(update_fields=['所属平台', '禁止登录截止时间'])
-    from_platform_name = PLATFORM_NAMES.get(from_platform, f'平台{from_platform}')
-    to_platform_name = PLATFORM_NAMES.get(target, f'平台{target}')
+    from_platform_name = _platform_name(from_platform)
+    to_platform_name = _platform_name(target)
     action_log(f"用户 {account} 切换平台 从 {from_platform_name} 到 {to_platform_name} 原因={switch_reason!r}")
     request.session.flush()
     return JsonResponse({'ok': True, 'redirect': '/'})
@@ -2490,9 +2538,9 @@ def user_browse(request, platform_id):
     account = request.session.get('account', '')
     if not account or request.session.get('role') != 'user':
         return redirect('accounts:login')
-    platform_id = 0 if platform_id not in (0, 1) else platform_id
+    platform_id = _normalize_platform_id(platform_id, default=default_platform_id())
     request.session['user_browse_platform_id'] = platform_id
-    name = PLATFORM_NAMES.get(platform_id, '平台1')
+    name = _platform_name(platform_id)
     try:
         user = UserAccount.objects.get(账号=account)
     except UserAccount.DoesNotExist:
@@ -2992,7 +3040,7 @@ def writer_select_body(request):
             article.method_auto_rule = True
         article.save(update_fields=['is_clickbait', 'clickbait_detected_at', 'method_auto_rule'])
         action_log(
-            f"{PLATFORM_NAMES.get(writer_platform, f'平台{writer_platform}')} 写手{account} 文章{article.pk} 进入标题党检测功能，"
+            f"{_platform_name(writer_platform)} 写手{account} 文章{article.pk} 进入标题党检测功能，"
             f"检测结果为{'标题党' if clickbait else '非标题党'}，已更新文章表与标题党检测结果表。"
         )
 
