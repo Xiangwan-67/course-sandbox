@@ -1364,22 +1364,18 @@ def platform_governance_publish(request):
         return JsonResponse({'error': '该措施已有待审核或已生效记录，不能重复提交发布。'}, status=400)
 
     if measure_type == 'account_health_rule':
-        # 账号健康分配置若不存在，先创建 draft 作为默认草稿；但发布仍需要先“提交配置”
-        cfg = AccountHealthConfig.objects.filter(platform_id=platform_id).order_by('-id').first()
+        # 账号健康分参数由管理员维护，平台侧仅做开关发布：必须存在管理员侧 active 配置
+        cfg = (
+            AccountHealthConfig.objects
+            .filter(platform_id=platform_id, status='active')
+            .order_by('-id')
+            .first()
+        )
         if not cfg:
-            cfg = AccountHealthConfig.objects.create(
-                platform_id=platform_id,
-                初始健康分=100,
-                每次违规扣减分值=10,
-                是否启用恢复机制=False,
-                恢复所需连续无违规轮次=3,
-                每次恢复分值=5,
-                status='draft',
-                提交人账号=account,
+            return JsonResponse(
+                {'error': '管理员尚未配置账号健康分默认参数，请联系管理员在后台添加并审核生效后再开启。'},
+                status=400,
             )
-        # 必须存在已提交(待审/已生效)的配置才允许提交发布
-        if cfg.status not in ('pending', 'active'):
-            return JsonResponse({'error': '请先提交账号健康分配置，等待管理员审核后再提交发布。'}, status=400)
         config_id = int(cfg.pk)
         content = {
             '初始健康分': cfg.初始健康分,

@@ -136,7 +136,7 @@ def test_account_health_publish_requires_submitted_config(client_platform_logged
 
     r = client.post("/platform/governance/publish/", {"measure_type": "account_health_rule"})
     assert r.status_code == 400
-    assert "请先提交账号健康分配置" in (r.json().get("error") or "")
+    assert "管理员尚未配置账号健康分默认参数" in (r.json().get("error") or "")
 
 
 @pytest.mark.django_db
