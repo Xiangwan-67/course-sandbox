@@ -191,12 +191,29 @@ def writer_notices(request):
     writer_platform = getattr(writer, '所属平台', 0) if writer else 0
     current_round = _get_current_round()
     notices = list(
-        WriterGovernanceNotice.objects.filter(写手账号=account)
+        WriterGovernanceNotice.objects.filter(
+            写手账号=account,
+            measure__措施类型='account_health_rule',
+        )
         .select_related('measure')
         .order_by('-投递轮次', '-id')[:50]
     )
     for row in notices:
         row.is_unread = not row.是否已读
+        # 账号健康分通知详情所需：读取配置与档位表（用于渲染推流系数表格）
+        try:
+            cfg = AccountHealthConfig.objects.filter(pk=row.measure.config_id).first()
+        except Exception:
+            cfg = None
+        row.health_cfg = cfg
+        if cfg:
+            row.health_levels = _get_effective_health_level_configs(
+                int(getattr(row.measure, '生效轮次', current_round) or current_round),
+                platform_id=writer_platform,
+                config_id=cfg.pk,
+            )
+        else:
+            row.health_levels = []
     return render(request, 'accounts/writer_notices.html', {
         'name': account,
         'platform_name': _platform_name(writer_platform),

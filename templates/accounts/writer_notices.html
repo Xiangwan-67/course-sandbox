@@ -9,7 +9,11 @@
     .notice { padding: 10px; border: 1px solid #eee; margin-top: 10px; border-radius: 6px; }
     .meta { color: #666; font-size: 0.9rem; margin-top: 4px; }
     .unread { border-color: #f2c200; background: #fffdf2; }
+    .read { opacity: 0.65; }
     .btn { margin-top: 8px; }
+    table { border-collapse: collapse; margin-top: 8px; }
+    th, td { border: 1px solid #ddd; padding: 6px 10px; font-size: 0.95rem; }
+    th { background: #f7f7f7; }
   </style>
 </head>
 <body>
@@ -18,13 +22,47 @@
 
   {% if notices and notices|length > 0 %}
     {% for row in notices %}
-      <div class="notice {% if row.is_unread %}unread{% endif %}">
+      <div class="notice {% if row.is_unread %}unread{% else %}read{% endif %}">
         <div><strong>{{ row.measure.get_措施类型_display }}</strong>（发布轮次：第 {{ row.measure.轮次 }} 轮）{% if row.is_unread %}<span style="color:#c00; margin-left: 6px;">● 未读</span>{% endif %}</div>
         <div class="meta">生效轮次：第 {{ row.measure.生效轮次 }} 轮{% if row.measure.取消轮次 %} | 取消轮次：第 {{ row.measure.取消轮次 }} 轮{% endif %}</div>
         <div class="meta">发布人：{{ row.measure.发布人账号 }} | 时间：{{ row.measure.创建时间 }}</div>
-        {% if row.measure.措施内容 %}
-          <pre style="white-space: pre-wrap; margin: 8px 0 0 0;">{{ row.measure.措施内容|safe }}</pre>
+
+        {% if row.health_cfg %}
+          <div style="margin-top: 10px; white-space: pre-wrap;">
+各位写手请注意：
+从第 {{ row.measure.生效轮次 }} 轮起，本平台将启动《账号健康分》规定。细则如下：
+1. 每位写手账号的初始健康分为 {{ row.health_cfg.初始健康分 }} 分；
+2. 若写手发布标题党文章，每次扣 {{ row.health_cfg.每次违规扣减分值 }} 分；
+3. 若写手连续 {{ row.health_cfg.恢复所需连续无违规轮次 }} 轮合规创作，恢复 {{ row.health_cfg.每次恢复分值 }} 分。
+注意⚠️账号健康分会影响账号流量。健康分档位与对应推流系数见下表：
+          </div>
+
+          {% if row.health_levels and row.health_levels|length > 0 %}
+            <table>
+              <thead>
+                <tr>
+                  <th>档位标签</th>
+                  <th>区间(下界开, 上界闭]</th>
+                  <th>推流系数Y</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for lv in row.health_levels %}
+                  <tr>
+                    <td>{{ lv.档位标签|default:"-" }}</td>
+                    <td>({{ lv.下界开 }}, {{ lv.上界闭 }}]</td>
+                    <td>{{ lv.可推流比例 }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% else %}
+            <div class="meta" style="margin-top: 6px;">（暂无档位配置，请联系管理员维护健康分档位表）</div>
+          {% endif %}
+        {% else %}
+          <div class="meta" style="margin-top: 10px;">（通知配置缺失：请联系管理员）</div>
         {% endif %}
+
         {% if row.is_unread %}
           <button class="btn" onclick="markRead({{ row.id }})">我已阅读</button>
         {% endif %}
