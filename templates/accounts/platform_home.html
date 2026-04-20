@@ -4,107 +4,235 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{{ platform_name }} - 平台页</title>
+  <style>
+    .platform-top-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      align-items: stretch;
+      margin-top: 12px;
+    }
+    /* 顶栏两栏平均分配（各约 50%） */
+    .platform-top-col {
+      flex: 1 1 0;
+      min-width: 0;
+      box-sizing: border-box;
+    }
+    @media (max-width: 640px) {
+      .platform-top-col {
+        flex: 1 1 100%;
+        min-width: 0;
+      }
+    }
+    .platform-panel {
+      border: 1px solid #bbb;
+      border-radius: 6px;
+      padding: 12px 14px 14px;
+      background: #fafafa;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      box-sizing: border-box;
+    }
+    .platform-panel-title {
+      text-align: center;
+      font-weight: bold;
+      font-size: 1rem;
+      margin: 0 0 4px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #ddd;
+    }
+    .platform-panel-sub {
+      text-align: center;
+      font-size: 0.9rem;
+      color: #555;
+      margin: 0 0 12px;
+    }
+    .monitor-box {
+      border: 1px solid #bbb;
+      border-radius: 6px;
+      padding: 12px 14px 14px;
+      background: #fafafa;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      box-sizing: border-box;
+    }
+    .monitor-system-title {
+      text-align: center;
+      font-weight: bold;
+      font-size: 1rem;
+      margin: 0 0 10px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #ddd;
+    }
+    .monitor-platform-title {
+      text-align: center;
+      font-weight: bold;
+      margin-bottom: 10px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #ddd;
+    }
+    .monitor-fields { font-size: 14px; line-height: 1.75; flex: 1; }
+    .monitor-update { margin-top: 10px; color: #444; font-size: 13px; }
+    .monitor-action {
+      margin-top: 12px;
+      text-align: center;
+      padding-top: 10px;
+      border-top: 1px solid #e0e0e0;
+    }
+    .monitor-action a {
+      display: inline-block;
+      padding: 6px 16px;
+      border: 1px solid #333;
+      background: #fff;
+      color: #111;
+      text-decoration: none;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .monitor-action a:hover { background: #f0f0f0; }
+  </style>
 </head>
 <body>
   <h2>{{ platform_name }}（平台负责人：{{ name }}）</h2>
   <p>当前轮次：{{ current_round }}</p>
 
-  <div style="margin-top: 16px; padding: 12px; border: 1px solid #ddd;">
-    <strong>利润看板（周期={{ profit_period }} 轮）</strong>
-    {% if current_cycle %}
-      <div style="margin-top: 6px;">
-        当前展示周期：第 {{ current_cycle.cycle_start_round }} 轮 ~ 第 {{ current_cycle.cycle_end_round }} 轮
-      </div>
-      {% if collecting_message %}
-        <div style="margin-top: 6px; color: #d48806;">{{ collecting_message }}</div>
-      {% endif %}
-      <div style="margin-top: 10px; padding: 10px; border: 1px solid #ddd; background: #fafafa;">
-        <div style="font-size: 18px;"><strong>周期总利润：</strong>{{ cycle_profit_total }}</div>
-        <div style="margin-top: 4px;">
-          <strong>较上一周期变化：</strong>
-          {% if profit_delta_abs is not None %}
-            <span style="color: {% if profit_delta_abs >= 0 %}green{% else %}red{% endif %};">
-              {{ profit_delta_abs }}
-              {% if profit_delta_pct is not None %}
-                （{% if profit_delta_pct >= 0 %}+{% endif %}{{ profit_delta_pct|floatformat:2 }}%）
+  <div class="platform-top-row">
+    <div class="platform-top-col">
+      <div class="platform-panel" aria-label="利润看板">
+        <div class="platform-panel-title">利润看板</div>
+        <div class="platform-panel-sub">周期 = {{ profit_period }} 轮</div>
+        {% if current_cycle %}
+          <div style="margin-top: 6px;">
+            当前展示周期：第 {{ current_cycle.cycle_start_round }} 轮 ~ 第 {{ current_cycle.cycle_end_round }} 轮
+          </div>
+          {% if collecting_message %}
+            <div style="margin-top: 6px; color: #d48806;">{{ collecting_message }}</div>
+          {% endif %}
+          <div style="margin-top: 10px; padding: 10px; border: 1px solid #ddd; background: #fafafa;">
+            <div style="font-size: 18px;"><strong>周期总利润：</strong>{{ cycle_profit_total }}</div>
+            <div style="margin-top: 4px;">
+              <strong>较上一周期变化：</strong>
+              {% if profit_delta_abs is not None %}
+                <span style="color: {% if profit_delta_abs >= 0 %}green{% else %}red{% endif %};">
+                  {{ profit_delta_abs }}
+                  {% if profit_delta_pct is not None %}
+                    （{% if profit_delta_pct >= 0 %}+{% endif %}{{ profit_delta_pct|floatformat:2 }}%）
+                  {% endif %}
+                </span>
+              {% else %}
+                —
               {% endif %}
-            </span>
+            </div>
+          </div>
+
+          <div style="margin-top: 10px;">
+            <strong>因子明细贡献</strong>
+            <table border="1" cellspacing="0" cellpadding="6" style="margin-top: 6px; border-collapse: collapse; width: 100%;">
+              <thead>
+                <tr>
+                  <th>因子</th>
+                  <th>原始值</th>
+                  <th>权重</th>
+                  <th>贡献值（原始值 × 权重）</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for f in factor_details %}
+                  <tr>
+                    <td>{{ f.name }}</td>
+                    <td>{{ f.raw }}</td>
+                    <td>{{ f.weight }}</td>
+                    <td>{{ f.contribution }}</td>
+                  </tr>
+                {% empty %}
+                  <tr><td colspan="4">暂无因子明细</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+
+          <div style="margin-top: 12px;">
+            <strong>历史周期利润表</strong>
+            <table border="1" cellspacing="0" cellpadding="6" style="margin-top: 6px; border-collapse: collapse; width: 100%;">
+              <thead>
+                <tr>
+                  <th>周期编号</th>
+                  <th>起止轮次</th>
+                  <th>利润总额</th>
+                  <th>同比变化</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for h in history_cycles %}
+                  <tr>
+                    <td>{{ h.cycle_index }}</td>
+                    <td>{{ h.cycle_start_round }} ~ {{ h.cycle_end_round }}</td>
+                    <td>{{ h.profit_total }}</td>
+                    <td>
+                      {% if h.delta_abs is not None %}
+                        <span style="color: {% if h.delta_abs >= 0 %}green{% else %}red{% endif %};">
+                          {{ h.delta_abs }}
+                          {% if h.delta_pct is not None %}
+                            （{% if h.delta_pct >= 0 %}+{% endif %}{{ h.delta_pct|floatformat:2 }}%）
+                          {% endif %}
+                        </span>
+                      {% else %}
+                        —
+                      {% endif %}
+                    </td>
+                  </tr>
+                {% empty %}
+                  <tr><td colspan="4">暂无历史周期记录</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+
+          <div style="margin-top: 12px; padding: 10px; border: 1px dashed #bbb; background: #fcfcfc;">
+            <strong>财务分析（预留）</strong>
+            <div style="margin-top: 6px;">{{ financial_analysis }}</div>
+          </div>
+        {% else %}
+          <div style="margin-top: 4px;">本轮尚未形成完整周期，利润看板暂不展示（需要到达周期末轮次）。</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="platform-top-col">
+      <section class="monitor-box" aria-label="平台监测系统">
+        <div class="monitor-system-title">平台监测系统</div>
+        <div class="monitor-platform-title">{{ platform_monitoring_box.platform_name }}</div>
+        <div class="monitor-fields">
+          <div>当前轮次：第 {{ platform_monitoring_box.current_round }} 轮</div>
+          {% if platform_monitoring_box.has_patrol %}
+            <div>用户数：{{ platform_monitoring_box.user_count }}</div>
+            <div>文章数：{{ platform_monitoring_box.article_count }}</div>
+            <div>标题党率：{{ platform_monitoring_box.title_rate_display }}</div>
+            <div>期间：{{ platform_monitoring_box.period_display }}</div>
           {% else %}
-            —
+            <div>用户数：无巡查记录</div>
+            <div>文章数：无巡查记录</div>
+            <div>标题党率：无巡查记录</div>
+            <div>期间：无巡查记录</div>
+          {% endif %}
+          {% if platform_monitoring_box.has_patrol %}
+            <div class="monitor-update">
+              最近更新轮次：{% if platform_monitoring_box.rounds_since_update == 0 %}本轮{% else %}{{ platform_monitoring_box.rounds_since_update }}轮前{% endif %}
+            </div>
+          {% else %}
+            <div class="monitor-update">最近更新：无巡查记录</div>
           {% endif %}
         </div>
-      </div>
-
-      <div style="margin-top: 10px;">
-        <strong>因子明细贡献</strong>
-        <table border="1" cellspacing="0" cellpadding="6" style="margin-top: 6px; border-collapse: collapse; width: 100%;">
-          <thead>
-            <tr>
-              <th>因子</th>
-              <th>原始值</th>
-              <th>权重</th>
-              <th>贡献值（原始值 × 权重）</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for f in factor_details %}
-              <tr>
-                <td>{{ f.name }}</td>
-                <td>{{ f.raw }}</td>
-                <td>{{ f.weight }}</td>
-                <td>{{ f.contribution }}</td>
-              </tr>
-            {% empty %}
-              <tr><td colspan="4">暂无因子明细</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-
-      <div style="margin-top: 12px;">
-        <strong>历史周期利润表</strong>
-        <table border="1" cellspacing="0" cellpadding="6" style="margin-top: 6px; border-collapse: collapse; width: 100%;">
-          <thead>
-            <tr>
-              <th>周期编号</th>
-              <th>起止轮次</th>
-              <th>利润总额</th>
-              <th>同比变化</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for h in history_cycles %}
-              <tr>
-                <td>{{ h.cycle_index }}</td>
-                <td>{{ h.cycle_start_round }} ~ {{ h.cycle_end_round }}</td>
-                <td>{{ h.profit_total }}</td>
-                <td>
-                  {% if h.delta_abs is not None %}
-                    <span style="color: {% if h.delta_abs >= 0 %}green{% else %}red{% endif %};">
-                      {{ h.delta_abs }}
-                      {% if h.delta_pct is not None %}
-                        （{% if h.delta_pct >= 0 %}+{% endif %}{{ h.delta_pct|floatformat:2 }}%）
-                      {% endif %}
-                    </span>
-                  {% else %}
-                    —
-                  {% endif %}
-                </td>
-              </tr>
-            {% empty %}
-              <tr><td colspan="4">暂无历史周期记录</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-
-      <div style="margin-top: 12px; padding: 10px; border: 1px dashed #bbb; background: #fcfcfc;">
-        <strong>财务分析（预留）</strong>
-        <div style="margin-top: 6px;">{{ financial_analysis }}</div>
-      </div>
-    {% else %}
-      <div style="margin-top: 8px;">本轮尚未形成完整周期，利润看板暂不展示（需要到达周期末轮次）。</div>
-    {% endif %}
+        {% if platform_monitoring_box.has_pending %}
+          <p style="font-size:12px;color:#666;margin:8px 0 0;text-align:center;">有待审核的巡查申请</p>
+        {% endif %}
+        <div class="monitor-action">
+          <a href="{% url 'accounts:platform_self_patrol' %}">启动巡查</a>
+        </div>
+      </section>
+    </div>
   </div>
 
   <div style="margin-top: 16px; padding: 12px; border: 1px solid #ddd;">

@@ -5,7 +5,9 @@ from accounts.platform_scope import validate_regulator_platform_list
 from .models import (
     WriterAccount, UserAccount, PlatformAccount, RegulatorAccount,
     RegulationActionApplication, RegulationAction, PlatformSpotCheckResult,
-    PlatformPatrolApplication, PlatformPatrolResult, AdminBaseConfig,
+    PlatformPatrolApplication, PlatformPatrolResult,
+    PlatformSelfPatrolApplication, PlatformSelfPatrolResult,
+    AdminBaseConfig,
     RegulatorFineApplication, RegulatorFineRecord,
     ProfitWeightConfig, PlatformCycleProfitRecord,
     PlatformGovernanceMeasure, PlatformPerformanceScheme,
@@ -163,6 +165,34 @@ class PlatformPatrolResultAdmin(admin.ModelAdmin):
         '起始轮次', '终止轮次', '执行轮次', '用户数', '抽查文章数', '标题党率', '创建时间',
     ]
     list_filter = ['平台编号', '巡查类型']
+
+
+@admin.register(PlatformSelfPatrolApplication)
+class PlatformSelfPatrolApplicationAdmin(admin.ModelAdmin):
+    list_display = [
+        'id', '申请轮次', '平台编号', '平台名称', '巡查比例',
+        '起始轮次', '终止轮次', '申请状态', '申请人账号',
+        '管理员确认账号', '管理员确认时间', '创建时间',
+    ]
+    list_filter = ['申请状态', '平台编号', '申请轮次']
+    actions = ['approve_self_patrol_applications', 'reject_self_patrol_applications']
+
+    @admin.action(description='审核通过：执行平台巡查并写入结果')
+    def approve_self_patrol_applications(self, request, queryset):
+        approval_actions.approve_platform_self_patrol_queryset(request, queryset, message_user=self.message_user)
+
+    @admin.action(description='驳回：平台巡查申请不通过')
+    def reject_self_patrol_applications(self, request, queryset):
+        approval_actions.reject_platform_self_patrol_queryset(request, queryset)
+
+
+@admin.register(PlatformSelfPatrolResult)
+class PlatformSelfPatrolResultAdmin(admin.ModelAdmin):
+    list_display = [
+        'id', '申请记录', '平台编号', '平台名称', '巡查比例',
+        '起始轮次', '终止轮次', '执行轮次', '用户数', '抽查文章数', '标题党率', '创建时间',
+    ]
+    list_filter = ['平台编号']
 
 
 @admin.register(ProfitWeightConfig)

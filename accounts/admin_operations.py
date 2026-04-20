@@ -16,6 +16,7 @@ from accounts.models import (
     ClickbaitDetectionConfig,
     PlatformGovernanceMeasure,
     PlatformPatrolApplication,
+    PlatformSelfPatrolApplication,
     PlatformPerformanceScheme,
     RegulationActionApplication,
     RegulatorFineApplication,
@@ -40,6 +41,9 @@ def _gather_pending() -> Dict[str, Any]:
         ),
         'patrol_applications': list(
             PlatformPatrolApplication.objects.filter(申请状态='pending').order_by('-创建时间', '-id')[:200]
+        ),
+        'platform_self_patrol_applications': list(
+            PlatformSelfPatrolApplication.objects.filter(申请状态='pending').order_by('-创建时间', '-id')[:200]
         ),
         'fine_applications': list(
             RegulatorFineApplication.objects.filter(申请状态='pending').order_by('-创建时间', '-id')[:200]
@@ -144,6 +148,15 @@ def _dispatch_approval(request: HttpRequest, model_key: str, pk: int, approve: b
             return err if not ok else ''
         approval_actions.reject_platform_patrol_queryset(
             request, PlatformPatrolApplication.objects.filter(pk=pk)
+        )
+        return ''
+
+    if model_key == 'platform_self_patrol_application':
+        if approve:
+            ok, err = approval_actions.approve_single_platform_self_patrol(request, pk)
+            return err if not ok else ''
+        approval_actions.reject_platform_self_patrol_queryset(
+            request, PlatformSelfPatrolApplication.objects.filter(pk=pk)
         )
         return ''
 

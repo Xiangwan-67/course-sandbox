@@ -44,6 +44,18 @@ def _admin_log_path():
     return os.path.join(log_dir, 'admin_actions.log')
 
 
+def _platform_patrol_log_path():
+    """平台巡查专项日志：项目根目录下的 logs/platform_actions.log。"""
+    try:
+        from django.conf import settings
+        base = settings.BASE_DIR
+    except Exception:
+        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    log_dir = os.path.join(base, 'logs')
+    os.makedirs(log_dir, exist_ok=True)
+    return os.path.join(log_dir, 'platform_actions.log')
+
+
 def _system_log_path():
     """系统行为日志：项目根目录下的 logs/system_actions.log。"""
     try:
@@ -100,6 +112,21 @@ def admin_action_log(message):
             f.write(line + '\n')
     except Exception as e:
         print(f"[admin_action_log] 写入文件失败: {e}", file=sys.stderr, flush=True)
+
+
+def platform_patrol_action_log(message):
+    """
+    记录一条平台巡查相关日志：打印到终端，并追加写入 logs/platform_actions.log。
+    """
+    ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    line = f"[{ts}] {message}"
+    print(line, flush=True)
+    try:
+        path = _platform_patrol_log_path()
+        with open(path, 'a', encoding='utf-8') as f:
+            f.write(line + '\n')
+    except Exception as e:
+        print(f"[platform_patrol_action_log] 写入文件失败: {e}", file=sys.stderr, flush=True)
 
 
 def system_action_log(message):

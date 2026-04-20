@@ -9,7 +9,9 @@ from django.utils import timezone
 from accounts.action_logger import action_log, admin_action_log, regulator_action_log
 from accounts.platform_scope import jurisdiction_for_regulator_account
 from accounts.models import (
+    PlatformAccount,
     PlatformPatrolApplication,
+    PlatformSelfPatrolApplication,
     PlatformSpotCheckResult,
     RegulationAction,
     RegulatorFineApplication,
@@ -189,6 +191,50 @@ def reject_platform_patrol_queryset(request, queryset) -> None:
         app.save(update_fields=['申请状态', '管理员确认账号', '管理员确认时间'])
         admin_action_log(
             f"管理员已驳回监管机构-平台巡查申请 申请编号：{app.pk}、平台名称：{app.平台名称}、平台编号：{app.平台编号}"
+        )
+
+
+# ----- 平台发起的平台巡查 -----
+
+def approve_platform_self_patrol_queryset(request, queryset, message_user: Optional[Callable] = None) -> None:
+    from accounts.views import _execute_platform_self_patrol
+
+    admin_account = _admin_account(request)
+    now = _now()
+    for app in queryset.filter(申请状态='pending'):
+        if not PlatformAccount.objects.filter(
+            账号=(app.申请人账号 or '').strip(),
+            所属平台=int(app.平台编号),
+        ).exists():
+            if message_user:
+                message_user(request, f'申请 id={app.pk} 与平台申请人账号不符，已跳过', level='ERROR')
+            continue
+        _, err = _execute_platform_self_patrol(app)
+        if err:
+            if message_user:
+                message_user(request, f'申请 id={app.pk} 未通过：{err}', level='ERROR')
+            continue
+
+        app.申请状态 = 'approved'
+        app.管理员确认账号 = admin_account
+        app.管理员确认时间 = now
+        app.save(update_fields=['申请状态', '管理员确认账号', '管理员确认时间'])
+
+        admin_action_log(
+            f"管理员已批准平台发起的平台巡查申请 申请编号：{app.pk}、平台名称：{app.平台名称}、平台编号：{app.平台编号}"
+        )
+
+
+def reject_platform_self_patrol_queryset(request, queryset) -> None:
+    admin_account = _admin_account(request)
+    now = _now()
+    for app in queryset.filter(申请状态='pending'):
+        app.申请状态 = 'rejected'
+        app.管理员确认账号 = admin_account
+        app.管理员确认时间 = now
+        app.save(update_fields=['申请状态', '管理员确认账号', '管理员确认时间'])
+        admin_action_log(
+            f"管理员已驳回平台发起的平台巡查申请 申请编号：{app.pk}、平台名称：{app.平台名称}、平台编号：{app.平台编号}"
         )
 
 
@@ -394,5 +440,31 @@ def approve_single_platform_patrol(request, pk: int) -> Tuple[bool, str]:
     app.save(update_fields=['申请状态', '管理员确认账号', '管理员确认时间'])
     admin_action_log(
         f"管理员已批准监管机构-平台巡查申请 申请编号：{app.pk}、平台名称：{app.平台名称}、平台编号：{app.平台编号}"
+    )
+    return True, ''
+
+
+def approve_single_platform_self_patrol(request, pk: int) -> Tuple[bool, str]:
+    app = PlatformSelfPatrolApplication.objects.filter(pk=pk, 申请状态='pending').first()
+    if not app:
+        return False, '未找到待审核的巡查申请'
+    if not PlatformAccount.objects.filter(
+        账号=(app.申请人账号 or '').strip(),
+        所属平台=int(app.平台编号),
+    ).exists():
+        return False, '申请人账号与平台不符，无法批准'
+    from accounts.views import _execute_platform_self_patrol
+
+    admin_account = _admin_account(request)
+    now = _now()
+    _, err = _execute_platform_self_patrol(app)
+    if err:
+        return False, err
+    app.申请状态 = 'approved'
+    app.管理员确认账号 = admin_account
+    app.管理员确认时间 = now
+    app.save(update_fields=['申请状态', '管理员确认账号', '管理员确认时间'])
+    admin_action_log(
+        f"管理员已批准平台发起的平台巡查申请 申请编号：{app.pk}、平台名称：{app.平台名称}、平台编号：{app.平台编号}"
     )
     return True, ''

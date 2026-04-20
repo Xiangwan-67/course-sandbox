@@ -91,6 +91,29 @@
   </table>
   {% else %}<p>暂无</p>{% endif %}
 
+  <h3 style="margin-top: 20px;">平台巡查（平台发起）</h3>
+  <p style="color:#666;font-size:12px;">与上表「监管机构 — 平台巡查」区分：由平台负责人提交，写入「平台巡查申请表」。</p>
+  {% if platform_self_patrol_applications %}
+  <table class="sandbox-table">
+    <thead><tr><th>ID</th><th>平台</th><th>巡查比例</th><th>轮次范围</th><th>申请人</th><th>操作</th></tr></thead>
+    <tbody>
+    {% for row in platform_self_patrol_applications %}
+      <tr>
+        <td>{{ row.id }}</td>
+        <td>{{ row.平台名称 }} ({{ row.平台编号 }})</td>
+        <td>{{ row.巡查比例 }}</td>
+        <td>{{ row.起始轮次 }}–{{ row.终止轮次 }}</td>
+        <td>{{ row.申请人账号 }}</td>
+        <td class="sandbox-actions">
+          <form method="post">{% csrf_token %}<input type="hidden" name="tab" value="regulator" /><input type="hidden" name="op" value="approve" /><input type="hidden" name="model" value="platform_self_patrol_application" /><input type="hidden" name="pk" value="{{ row.pk }}" /><button type="submit" class="default">通过</button></form>
+          <form method="post">{% csrf_token %}<input type="hidden" name="tab" value="regulator" /><input type="hidden" name="op" value="reject" /><input type="hidden" name="model" value="platform_self_patrol_application" /><input type="hidden" name="pk" value="{{ row.pk }}" /><button type="submit">驳回</button></form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p>暂无</p>{% endif %}
+
   <h3 style="margin-top: 20px;">监管罚款</h3>
   {% if fine_applications %}
   <table class="sandbox-table">

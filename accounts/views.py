@@ -11,12 +11,19 @@ import json, time
 import random
 import threading
 from django.conf import settings
-from accounts.action_logger import action_log, regulator_action_log, system_action_log
+from accounts.action_logger import (
+    action_log,
+    regulator_action_log,
+    system_action_log,
+    platform_patrol_action_log,
+)
 from accounts.db_retry import retry_on_db_locked
 from accounts.models import (
     WriterAccount, UserAccount, PlatformAccount, RegulatorAccount,
     RegulationActionApplication, RegulationAction, PlatformSpotCheckResult,
-    PlatformPatrolApplication, PlatformPatrolResult, AdminBaseConfig,
+    PlatformPatrolApplication, PlatformPatrolResult,
+    PlatformSelfPatrolApplication, PlatformSelfPatrolResult,
+    AdminBaseConfig,
     RegulatorFineApplication, RegulatorFineRecord,
     ProfitWeightConfig, PlatformCycleProfitRecord, PlatformGovernanceMeasure, PlatformPerformanceScheme, Article, Comment, PlatformSwitchSurvey,
     UserFollowWriter, UnfollowSurvey, ArticlePush, ArticlePushDetail,
@@ -434,6 +441,8 @@ def platform_home(request):
         'total_collect': int(prev_agg.get('total_collect') or 0),
     }
 
+    platform_monitoring_box = _platform_self_monitoring_box(platform_id, current_round)
+
     return render(request, 'accounts/platform_home.html', {
         'name': account,
         'platform_id': platform_id,
@@ -451,6 +460,7 @@ def platform_home(request):
         'governance_status': governance_status,
         'prev_round_summary': prev_round_summary,
         'current_performance_scheme': current_performance_scheme,
+        'platform_monitoring_box': platform_monitoring_box,
     })
 
 
@@ -646,6 +656,36 @@ def _regulator_monitoring_boxes(current_round: int, jurisdiction):
             row['rounds_since_update'] = rounds_ago
         boxes.append(row)
     return boxes
+
+
+def _platform_self_monitoring_box(platform_id: int, current_round: int):
+    """平台主页右侧「平台监测系统」单框：最新一条 PlatformSelfPatrolResult + 待审核申请。"""
+    latest = (
+        PlatformSelfPatrolResult.objects.filter(平台编号=platform_id)
+        .order_by('-创建时间', '-id')
+        .first()
+    )
+    patrol_pending = PlatformSelfPatrolApplication.objects.filter(
+        平台编号=platform_id, 申请状态='pending'
+    ).exists()
+    pname = _platform_name(platform_id)
+    row = {
+        'platform_id': platform_id,
+        'platform_name': pname,
+        'has_patrol': latest is not None,
+        'current_round': current_round,
+        'has_pending': patrol_pending,
+    }
+    if latest:
+        exec_r = int(latest.执行轮次)
+        rounds_ago = max(0, int(current_round) - exec_r)
+        rate_pct = float(latest.标题党率) * 100.0
+        row['user_count'] = latest.用户数
+        row['article_count'] = latest.抽查文章数
+        row['title_rate_display'] = f'{rate_pct:.2f}%'
+        row['period_display'] = f'第{latest.起始轮次}–{latest.终止轮次}轮'
+        row['rounds_since_update'] = rounds_ago
+    return row
 
 
 def _regulator_progress_tables(current_round: int, jurisdiction):
@@ -1058,6 +1098,111 @@ def regulator_platform_patrol_submit(request):
     regulator_action_log(
         f"监管机构申请平台巡查 申请编号：{app.pk}、平台编号：{platform_id}、平台名称：{pname}、"
         f"巡查比例：{patrol_ratio}、起始轮次：{start_round}、终止轮次：{end_round}"
+    )
+    return JsonResponse({
+        'ok': True,
+        'application_id': app.pk,
+        'status': app.申请状态,
+    })
+
+
+@ensure_csrf_cookie
+def platform_self_patrol(request):
+    """平台负责人：巡查参数配置页（从主页「启动巡查」进入）。"""
+    account = request.session.get('account', '')
+    if not account or request.session.get('role') != 'platform':
+        return redirect('accounts:login')
+
+    platform_user = PlatformAccount.objects.filter(账号=account).first()
+    platform_id = getattr(platform_user, '所属平台', 0) if platform_user else 0
+    current_round = _get_current_round()
+    pname = _platform_name(platform_id)
+    patrol_pending = PlatformSelfPatrolApplication.objects.filter(
+        平台编号=platform_id, 申请状态='pending'
+    ).exists()
+    default_prev = max(1, current_round - 1)
+    can_default_patrol = current_round > 1
+    return render(request, 'accounts/platform_platform_patrol.html', {
+        'name': account,
+        'current_round': current_round,
+        'platform_id': platform_id,
+        'platform_name': pname,
+        'patrol_pending': patrol_pending,
+        'default_patrol_ratio': '1',
+        'default_start_round': default_prev,
+        'default_end_round': default_prev,
+        'can_default_patrol': can_default_patrol,
+    })
+
+
+@require_http_methods(['POST'])
+def platform_self_patrol_submit(request):
+    """平台提交本平台巡查申请（待管理员审核）。"""
+    account = request.session.get('account', '')
+    if not account or request.session.get('role') != 'platform':
+        return JsonResponse({'error': '未登录或非平台角色'}, status=403)
+
+    payload = {}
+    if request.content_type and 'application/json' in request.content_type:
+        try:
+            payload = json.loads((request.body or b'').decode('utf-8') or '{}')
+        except Exception:
+            payload = {}
+    else:
+        return JsonResponse({'error': '请使用 application/json'}, status=400)
+
+    platform_user = PlatformAccount.objects.filter(账号=account).first()
+    my_platform_id = getattr(platform_user, '所属平台', 0) if platform_user else 0
+
+    try:
+        platform_id = int(payload.get('platform_id'))
+    except (TypeError, ValueError):
+        return JsonResponse({'error': '平台编号非法'}, status=400)
+
+    if platform_id != my_platform_id:
+        return JsonResponse({'error': '只能为本平台提交巡查申请'}, status=400)
+
+    valid_platform_ids = {item['id'] for item in _all_platform_choices()}
+    if platform_id not in valid_platform_ids:
+        return JsonResponse({'error': '平台编号非法'}, status=400)
+
+    try:
+        patrol_ratio = Decimal(str(payload.get('patrol_ratio', '1')))
+    except Exception:
+        return JsonResponse({'error': '巡查比例非法'}, status=400)
+    if patrol_ratio < 0 or patrol_ratio > 1:
+        return JsonResponse({'error': '巡查比例须在 0～1 之间'}, status=400)
+
+    try:
+        start_round = int(payload.get('start_round'))
+        end_round = int(payload.get('end_round'))
+    except (TypeError, ValueError):
+        return JsonResponse({'error': '起始/终止轮次须为整数'}, status=400)
+
+    current_round = _get_current_round()
+    if start_round > end_round:
+        return JsonResponse({'error': '起始轮次不能大于终止轮次'}, status=400)
+    if end_round >= current_round:
+        return JsonResponse({'error': '终止轮次须严格小于当前轮次'}, status=400)
+
+    if PlatformSelfPatrolApplication.objects.filter(平台编号=platform_id, 申请状态='pending').exists():
+        return JsonResponse({'error': '本平台已有待审核的平台巡查申请'}, status=400)
+
+    pname = _platform_name(platform_id)
+    app = PlatformSelfPatrolApplication.objects.create(
+        申请轮次=current_round,
+        平台编号=platform_id,
+        平台名称=pname,
+        巡查比例=patrol_ratio,
+        起始轮次=start_round,
+        终止轮次=end_round,
+        申请状态='pending',
+        申请人账号=account,
+    )
+
+    platform_patrol_action_log(
+        f"平台申请平台巡查 申请编号：{app.pk}、平台编号：{platform_id}、平台名称：{pname}、"
+        f"巡查比例：{patrol_ratio}、起始轮次：{start_round}、终止轮次：{end_round}、申请人：{account}"
     )
     return JsonResponse({
         'ok': True,
@@ -2085,30 +2230,23 @@ def _get_admin_auto_patrol_ratio():
         return Decimal('0.5')
 
 
-def _run_platform_patrol_core(
+def _compute_platform_patrol_metrics(
     platform_id: int,
-    platform_name: str,
     ratio: Decimal,
     start_r: int,
     end_r: int,
     exec_round: int,
-    *,
-    application=None,
-    patrol_kind: str = 'manual',
-    regulation_action=None,
     rng_seed: int = 0,
 ):
     """
-    执行一次平台巡查抽样并写入 PlatformPatrolResult（手动或自动）。
-    exec_round：写入「执行轮次」的当前模拟轮次（通常为巡查执行时点的当前轮次）。
+    抽样并计算标题党率等，供监管机构巡查表与平台巡查行动表共用。
+    返回 (metrics_dict, None) 或 (None, error_str)。
+    metrics_dict：sampled_ids, user_count, n, rate(Decimal)
     """
     if start_r > end_r:
         return None, '起始轮次不能大于终止轮次'
     if end_r >= exec_round:
         return None, '终止轮次须严格小于当前执行轮次'
-
-    if application is not None and PlatformPatrolResult.objects.filter(申请记录=application).exists():
-        return None, '该申请已存在巡查结果'
 
     writers = list(WriterAccount.objects.filter(所属平台=platform_id).values_list('账号', flat=True))
     id_list = list(
@@ -2151,6 +2289,40 @@ def _run_platform_patrol_core(
 
     user_count = UserAccount.objects.filter(所属平台=platform_id).count()
 
+    return {
+        'sampled_ids': sampled_ids,
+        'user_count': user_count,
+        'n': n,
+        'rate': rate,
+    }, None
+
+
+def _run_platform_patrol_core(
+    platform_id: int,
+    platform_name: str,
+    ratio: Decimal,
+    start_r: int,
+    end_r: int,
+    exec_round: int,
+    *,
+    application=None,
+    patrol_kind: str = 'manual',
+    regulation_action=None,
+    rng_seed: int = 0,
+):
+    """
+    执行一次平台巡查抽样并写入 PlatformPatrolResult（手动或自动）。
+    exec_round：写入「执行轮次」的当前模拟轮次（通常为巡查执行时点的当前轮次）。
+    """
+    if application is not None and PlatformPatrolResult.objects.filter(申请记录=application).exists():
+        return None, '该申请已存在巡查结果'
+
+    metrics, err = _compute_platform_patrol_metrics(
+        platform_id, ratio, start_r, end_r, exec_round, rng_seed=rng_seed
+    )
+    if err:
+        return None, err
+
     result = PlatformPatrolResult.objects.create(
         申请记录=application,
         专项行动=regulation_action,
@@ -2160,11 +2332,50 @@ def _run_platform_patrol_core(
         巡查比例=ratio,
         起始轮次=start_r,
         终止轮次=end_r,
-        用户数=user_count,
-        抽查文章数=n,
-        抽查文章列表=sampled_ids,
-        标题党率=rate,
+        用户数=metrics['user_count'],
+        抽查文章数=metrics['n'],
+        抽查文章列表=metrics['sampled_ids'],
+        标题党率=metrics['rate'],
         执行轮次=exec_round,
+    )
+    return result, None
+
+
+def _execute_platform_self_patrol(application: PlatformSelfPatrolApplication):
+    """
+    平台发起的巡查申请经管理员审批后执行，写入 PlatformSelfPatrolResult。
+    返回 (result, None) 成功，或 (None, error_message)。
+    """
+    if PlatformSelfPatrolResult.objects.filter(申请记录=application).exists():
+        return None, '该申请已存在巡查结果'
+    current_round = _get_current_round()
+    metrics, err = _compute_platform_patrol_metrics(
+        application.平台编号,
+        application.巡查比例,
+        application.起始轮次,
+        application.终止轮次,
+        current_round,
+        rng_seed=int(application.pk),
+    )
+    if err:
+        return None, err
+
+    result = PlatformSelfPatrolResult.objects.create(
+        申请记录=application,
+        平台编号=application.平台编号,
+        平台名称=application.平台名称,
+        巡查比例=application.巡查比例,
+        起始轮次=application.起始轮次,
+        终止轮次=application.终止轮次,
+        用户数=metrics['user_count'],
+        抽查文章数=metrics['n'],
+        抽查文章列表=metrics['sampled_ids'],
+        标题党率=metrics['rate'],
+        执行轮次=current_round,
+    )
+    platform_patrol_action_log(
+        f"平台巡查已执行 申请编号={application.pk} 结果编号={result.pk} 平台编号={application.平台编号} "
+        f"平台名称={application.平台名称} 抽查文章数={metrics['n']} 标题党率={metrics['rate']} 执行轮次={current_round}"
     )
     return result, None
 

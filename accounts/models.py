@@ -222,6 +222,61 @@ class PlatformPatrolResult(models.Model):
         ordering = ['-创建时间', '-id']
 
 
+class PlatformSelfPatrolApplication(models.Model):
+    """平台方发起的平台巡查申请（待管理员审核）。"""
+
+    STATUS_CHOICES = [
+        ('pending', '待审核'),
+        ('approved', '已通过'),
+        ('rejected', '已驳回'),
+    ]
+
+    申请轮次 = models.PositiveIntegerField()
+    平台编号 = models.IntegerField()
+    平台名称 = models.CharField(max_length=64)
+    巡查比例 = models.DecimalField(max_digits=5, decimal_places=4)
+    起始轮次 = models.PositiveIntegerField()
+    终止轮次 = models.PositiveIntegerField()
+    申请状态 = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    申请人账号 = models.CharField(max_length=64, blank=True)
+    管理员确认账号 = models.CharField(max_length=100, blank=True)
+    管理员确认时间 = models.DateTimeField(null=True, blank=True)
+    创建时间 = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = '平台巡查申请表'
+        verbose_name = '平台巡查申请表'
+        verbose_name_plural = '平台巡查申请表'
+        ordering = ['-创建时间', '-id']
+
+
+class PlatformSelfPatrolResult(models.Model):
+    """平台巡查执行结果（经管理员批准执行后落库）。"""
+
+    申请记录 = models.OneToOneField(
+        PlatformSelfPatrolApplication,
+        on_delete=models.CASCADE,
+        related_name='巡查结果',
+    )
+    平台编号 = models.IntegerField()
+    平台名称 = models.CharField(max_length=64)
+    巡查比例 = models.DecimalField(max_digits=5, decimal_places=4)
+    起始轮次 = models.PositiveIntegerField()
+    终止轮次 = models.PositiveIntegerField()
+    用户数 = models.PositiveIntegerField(default=0)
+    抽查文章数 = models.PositiveIntegerField(default=0)
+    抽查文章列表 = models.JSONField(default=list, blank=True)
+    标题党率 = models.DecimalField(max_digits=7, decimal_places=6, default=Decimal('0'))
+    执行轮次 = models.PositiveIntegerField(default=1)
+    创建时间 = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = '平台巡查行动表'
+        verbose_name = '平台巡查行动表'
+        verbose_name_plural = '平台巡查行动表'
+        ordering = ['-创建时间', '-id']
+
+
 class RegulatorFineApplication(models.Model):
     """监管机构罚款申请（待管理员审核）。"""
 
