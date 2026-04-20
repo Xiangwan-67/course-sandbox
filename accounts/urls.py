@@ -44,6 +44,7 @@ urlpatterns = [
     path('writer/history/', views.writer_article_history, name='writer_article_history'),
     path('writer/notices/', views.writer_notices, name='writer_notices'),
     path('writer/notices/<int:notice_id>/read/', views.writer_notice_read, name='writer_notice_read'),
+    path('writer/health-log/<int:log_id>/confirm/', views.writer_health_log_confirm, name='writer_health_log_confirm'),
     path('user/', views.user_home, name='user_home'),
     path('user/platform-check/', views.user_platform_check, name='user_platform_check'),
     path('user/switch-platform/', views.user_switch_platform, name='user_switch_platform'),

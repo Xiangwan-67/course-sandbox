@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from pathlib import Path
 
 import pytest
@@ -113,7 +114,10 @@ def action_log_path(settings) -> Path:
 def platform_account(db):
     from accounts.models import PlatformAccount
 
-    acc = PlatformAccount.objects.get(账号="pytest_platform_0")
+    acc, _ = PlatformAccount.objects.update_or_create(
+        账号="pytest_platform_0",
+        defaults={"密码": "pytest", "所属平台": 0},
+    )
     return acc
 
 
@@ -121,6 +125,12 @@ def platform_account(db):
 def writer_accounts(db):
     from accounts.models import WriterAccount
 
+    # transactional_db / transaction=True 的测试会 flush 数据库，这里保证预置写手一定存在
+    for i in range(1, 11):
+        WriterAccount.objects.update_or_create(
+            账号=f"pytest_writer_{i}",
+            defaults={"密码": "pytest", "所属平台": 0},
+        )
     return list(WriterAccount.objects.filter(账号__startswith="pytest_writer_").order_by("账号"))
 
 

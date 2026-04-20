@@ -156,6 +156,34 @@ def writer_home(request):
     )
     has_unread = WriterGovernanceNotice.objects.filter(写手账号=account, 是否已读=False).exists()
 
+    # 健康分惩罚/恢复弹窗：上一轮产生审计记录，则在本轮初弹出一次（确认后不再弹）
+    health_popup = None
+    health_popup_json = None
+    if prev_round >= 1 and writer:
+        # 仅当健康分治理措施在“审计轮次”有效时，才弹窗
+        if _get_effective_health_rule(writer_platform, prev_round):
+            log_row = (
+                WriterHealthScoreLog.objects
+                .filter(写手账号=account, 轮次=prev_round, 已确认=False, event_type__in=['violation', 'recovery'])
+                .order_by('-id')
+                .first()
+            )
+            if log_row:
+                article_title = None
+                if getattr(log_row, '文章编号', None):
+                    a = Article.objects.filter(pk=log_row.文章编号).only('标题').first()
+                    article_title = getattr(a, '标题', None) if a else None
+                writer.refresh_from_db()
+                health_popup = {
+                    'id': log_row.pk,
+                    'event_type': log_row.event_type,
+                    'round': int(log_row.轮次),
+                    'delta': int(log_row.变更值),
+                    'article_title': article_title or '',
+                    'health_score': int(getattr(writer, '健康分', 100) or 100),
+                }
+                health_popup_json = json.dumps(health_popup, ensure_ascii=False)
+
     my_prev_round_rows = []
     if prev_round >= 1:
         for a in (
@@ -179,7 +207,26 @@ def writer_home(request):
         'prev_round': prev_round,
         'has_unread_notice': has_unread,
         'my_prev_round_rows': my_prev_round_rows,
+        'health_popup': health_popup,
+        'health_popup_json': health_popup_json,
     })
+
+
+@require_http_methods(['POST'])
+def writer_health_log_confirm(request, log_id: int):
+    """写手确认健康分扣/恢复弹窗：同一条审计记录只确认一次。"""
+    account = request.session.get('account', '')
+    if not account or request.session.get('role') != 'writer':
+        return JsonResponse({'error': '未登录或非写手'}, status=403)
+    row = WriterHealthScoreLog.objects.filter(pk=log_id).first()
+    if not row:
+        return JsonResponse({'error': '记录不存在'}, status=404)
+    if row.写手账号 != account:
+        return JsonResponse({'error': '无权操作'}, status=403)
+    if not row.已确认:
+        row.已确认 = True
+        row.save(update_fields=['已确认'])
+    return JsonResponse({'ok': True})
 
 
 def writer_notices(request):
@@ -2586,6 +2633,7 @@ def _recover_writer_health_for_platform(platform_id: int, round_num: int):
     recover_value = max(0, int(cfg.每次恢复分值 or 0))
     if recover_value <= 0:
         return
+    upper = int(getattr(cfg, '初始健康分', 100) or 100)
     start_round = max(1, int(round_num) - clean_rounds + 1)
     writers = WriterAccount.objects.filter(所属平台=platform_id)
     level_configs = _get_effective_health_level_configs(round_num, platform_id=platform_id, config_id=cfg.pk)
@@ -2599,7 +2647,10 @@ def _recover_writer_health_for_platform(platform_id: int, round_num: int):
         if has_violation:
             continue
         before = int(getattr(writer, '健康分', cfg.初始健康分 or 100))
-        after = before + recover_value
+        # 恢复上限封顶到“初始健康分”（通常为100）。满分时不做恢复、不写审计，避免出现 100+。
+        after = min(before + recover_value, upper)
+        if after <= before:
+            continue
         tier, ratio = _resolve_health_tier_and_ratio(after, level_configs)
         writer.健康分 = after
         writer.health_tier = tier
@@ -2611,12 +2662,12 @@ def _recover_writer_health_for_platform(platform_id: int, round_num: int):
             轮次=round_num,
             event_type='recovery',
             文章编号=None,
-            变更值=recover_value,
+            变更值=after - before,
             原因='consecutive_clean_rounds',
         )
         action_log(
             f"健康分恢复 writer={writer.账号} round={round_num} clean_rounds={clean_rounds} "
-            f"recover={recover_value} before={before} after={after} tier={tier} gamma={str(ratio)}"
+            f"recover={after - before} before={before} after={after} tier={tier} gamma={str(ratio)}"
         )
 
 

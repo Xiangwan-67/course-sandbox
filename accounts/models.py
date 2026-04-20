@@ -562,6 +562,7 @@ class WriterHealthScoreLog(models.Model):
     变更值 = models.IntegerField()
     原因 = models.CharField(max_length=128, blank=True)
     创建时间 = models.DateTimeField(auto_now_add=True)
+    已确认 = models.BooleanField(default=False)
 
     class Meta:
         db_table = '写手健康分变更审计'

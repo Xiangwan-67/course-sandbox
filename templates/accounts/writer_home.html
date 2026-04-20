@@ -56,9 +56,45 @@
         .notice-dot { position: absolute; top: -4px; right: -2px; width: 10px; height: 10px; background: #d00; border-radius: 50%; }
         .my-prev-wrap { overflow-x: auto; max-width: 100%; }
         .my-prev-table { min-width: 920px; }
+
+        /* 健康分弹窗（写手主页） */
+        .hs-modal-mask { display: none; position: fixed; left: 0; top: 0; right: 0; bottom: 0; background: rgba(0,0,0,.45); z-index: 200; align-items: center; justify-content: center; padding: 16px; }
+        .hs-modal-mask.show { display: flex; }
+        .hs-modal-box { width: 100%; max-width: 520px; background: #fff; border-radius: 14px; box-shadow: 0 18px 60px rgba(0,0,0,.25); overflow: hidden; }
+        .hs-modal-head { padding: 16px 18px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid #eee; }
+        .hs-badge { width: 34px; height: 34px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; }
+        .hs-badge.warn { background: #fff4e5; color: #b85a00; }
+        .hs-badge.ok { background: #eaf7ef; color: #1d7a3a; }
+        .hs-modal-title { margin: 0; font-size: 1.15rem; }
+        .hs-modal-body { padding: 14px 18px; color: #222; line-height: 1.6; white-space: pre-wrap; }
+        .hs-modal-body strong { font-weight: 700; }
+        .hs-modal-actions { padding: 14px 18px; display: flex; justify-content: flex-end; gap: 10px; border-top: 1px solid #eee; }
+        .hs-btn { padding: 8px 16px; border-radius: 10px; border: 1px solid #ccc; background: #fff; cursor: pointer; font-size: 0.95rem; }
+        .hs-btn.primary { background: #111; color: #fff; border-color: #111; }
+        .hs-btn.primary:hover { background: #000; }
     </style>
 </head>
 <body>
+    {% if health_popup %}
+    <div class="hs-modal-mask" id="hs_modal" role="dialog" aria-modal="true">
+        <div class="hs-modal-box">
+            <div class="hs-modal-head">
+                {% if health_popup.event_type == 'violation' %}
+                  <span class="hs-badge warn">!</span>
+                  <h3 class="hs-modal-title">注意：您产生了违规行为！</h3>
+                {% else %}
+                  <span class="hs-badge ok">✓</span>
+                  <h3 class="hs-modal-title">恭喜您：</h3>
+                {% endif %}
+            </div>
+            <div class="hs-modal-body" id="hs_modal_text"></div>
+            <div class="hs-modal-actions">
+                <button class="hs-btn primary" type="button" id="hs_modal_ok">确认</button>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     <div class="top-row">
         <p style="margin:0;">写手{{ name }}，您好！</p>
         <div class="links">
@@ -232,6 +268,48 @@
 
     <script>
         (function () {
+            var hsPopup = {% if health_popup_json %}{{ health_popup_json|safe }}{% else %}null{% endif %};
+            function getCookie(name) {
+                var v = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
+                return v ? v.pop() : '';
+            }
+            function showHealthPopup() {
+                if (!hsPopup) return;
+                var overlay = document.getElementById('hs_modal');
+                var textEl = document.getElementById('hs_modal_text');
+                var okBtn = document.getElementById('hs_modal_ok');
+                if (!overlay || !textEl || !okBtn) return;
+
+                var msg = "";
+                if (hsPopup.event_type === "violation") {
+                    msg += "在第" + hsPopup.round + "轮，您标题为“" + (hsPopup.article_title || "（无标题）") + "”的文章检测为标题党，健康分扣除" + Math.abs(hsPopup.delta) + "分。\n";
+                    msg += "您当前的健康分为 " + hsPopup.health_score + " 分。\n";
+                    msg += "健康分会影响您的文章流量，请注意合规创作。";
+                } else {
+                    msg += "您已连续合规创作，健康分恢复" + Math.abs(hsPopup.delta) + "分。\n";
+                    msg += "您当前的健康分为 " + hsPopup.health_score + " 分。\n";
+                    msg += "健康分会影响您的文章流量，请继续保持合规创作~";
+                }
+                textEl.textContent = msg;
+                overlay.classList.add('show');
+                okBtn.addEventListener('click', async function () {
+                    try {
+                        var url = ('{% url "accounts:writer_health_log_confirm" 0 %}').replace('0', String(hsPopup.id));
+                        var csrftoken = getCookie('csrftoken');
+                        var res = await fetch(url, { method: 'POST', credentials: 'same-origin', headers: { 'X-CSRFToken': csrftoken } });
+                        var data = await res.json();
+                        if (!res.ok) {
+                            alert(data.error || "操作失败");
+                            return;
+                        }
+                    } catch (e) {
+                        alert("网络异常，稍后再试");
+                        return;
+                    }
+                    overlay.classList.remove('show');
+                }, { once: true });
+            }
+
             var btnPublish = document.getElementById('btn_publish');
             var publishBlock = document.getElementById('publish_block');
             var titleLevel = 3;
@@ -251,6 +329,9 @@
             }
             bindLevelOptions('title_level_options', function (v) { titleLevel = v; });
             bindLevelOptions('relevance_level_options', function (v) { relevanceLevel = v; });
+
+            // 页面加载后自动弹出健康分通知（若存在）
+            showHealthPopup();
 
             var btn = document.getElementById('submit_btn');
             var err = document.getElementById('error_msg');
