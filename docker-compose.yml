@@ -1,6 +1,7 @@
 # 服务器：在仓库根目录与 .env 同放，docker-compose build && docker-compose up -d
 # MySQL 不映射宿主机端口；账号 Excel 放宿主机 /opt/sandbox/data，容器内只读挂载为 /data
-version: "3.8"
+# 老版 docker-compose（如 1.22）不识别 3.8，使用 3.3 兼容
+version: "3.3"
 
 services:
   db:
