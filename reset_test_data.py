@@ -18,7 +18,8 @@
 - 模拟轮次重置为 1；写手粉丝数归零、健康分恢复默认；用户关注数归零
 
 说明：
-- 使用与 Web 相同的数据库（settings.DATABASES['default']），对 SQLite 执行真实 DELETE/UPDATE。
+- 使用与 Web 相同的数据库（settings.DATABASES['default']），执行真实 DELETE/UPDATE。
+- MySQL 使用反引号转义标识符；SQLite / PostgreSQL 使用双引号。
 - 建议在无并发写库时执行。
 """
 import os
@@ -35,8 +36,12 @@ django.setup()
 from django.db import connection
 
 
-def _quote(s):
-    return '"' + str(s).replace('"', '""') + '"'
+def _sql_ident(name: str) -> str:
+    """按数据库方言转义表名/列名。MySQL 用 `...`，SQLite 与 PostgreSQL 用 \"...\""""
+    s = str(name)
+    if connection.vendor == 'mysql':
+        return '`' + s.replace('`', '``') + '`'
+    return '"' + s.replace('"', '""') + '"'
 
 
 # 按外键/依赖顺序：先子表，后父表。表名为 models.Meta.db_table。
@@ -85,37 +90,53 @@ TABLES_DELETE_ORDER = [
 def main():
     from django.db import transaction
 
+    vendor = connection.vendor
+    print(f'数据库后端: {vendor}')
+
     with transaction.atomic():
         with connection.cursor() as cursor:
-            for table in TABLES_DELETE_ORDER:
-                try:
-                    q = _quote(table)
-                    cursor.execute(f'DELETE FROM {q}')
-                    n = cursor.rowcount
-                    print(f'DELETE FROM {table}: {n} 行')
-                except Exception as e:
-                    print(f'DELETE FROM {table}: 跳过 ({e})')
+            if vendor == 'mysql':
+                cursor.execute('SET FOREIGN_KEY_CHECKS = 0')
 
-            for sql, label in [
-                (f'UPDATE {_quote("写手")} SET {_quote("粉丝数")} = 0', 'UPDATE 写手 粉丝数=0'),
-                (
-                    f'UPDATE {_quote("写手")} SET {_quote("健康分")} = 100, '
-                    f'{_quote("health_tier")} = \'\', '
-                    f'{_quote("推流系数")} = 1.0, '
-                    f'{_quote("健康分最近更新轮次")} = NULL',
-                    'UPDATE 写手 健康分/档位/推流系数 重置',
-                ),
-                (f'UPDATE {_quote("用户")} SET {_quote("关注数")} = 0', 'UPDATE 用户 关注数=0'),
-                (
-                    f'UPDATE {_quote("模拟轮次")} SET {_quote("当前轮次")} = 1 WHERE id = 1',
-                    'UPDATE 模拟轮次 当前轮次=1',
-                ),
-            ]:
-                try:
-                    cursor.execute(sql)
-                    print(f'{label}: {cursor.rowcount} 行')
-                except Exception as e:
-                    print(f'{label}: 跳过 ({e})')
+            try:
+                for table in TABLES_DELETE_ORDER:
+                    try:
+                        q = _sql_ident(table)
+                        cursor.execute(f'DELETE FROM {q}')
+                        n = cursor.rowcount
+                        print(f'DELETE FROM {table}: {n} 行')
+                    except Exception as e:
+                        print(f'DELETE FROM {table}: 跳过 ({e})')
+
+                for sql, label in [
+                    (
+                        f'UPDATE {_sql_ident("写手")} SET {_sql_ident("粉丝数")} = 0',
+                        'UPDATE 写手 粉丝数=0',
+                    ),
+                    (
+                        f'UPDATE {_sql_ident("写手")} SET {_sql_ident("健康分")} = 100, '
+                        f'{_sql_ident("health_tier")} = \'\', '
+                        f'{_sql_ident("推流系数")} = 1.0, '
+                        f'{_sql_ident("健康分最近更新轮次")} = NULL',
+                        'UPDATE 写手 健康分/档位/推流系数 重置',
+                    ),
+                    (
+                        f'UPDATE {_sql_ident("用户")} SET {_sql_ident("关注数")} = 0',
+                        'UPDATE 用户 关注数=0',
+                    ),
+                    (
+                        f'UPDATE {_sql_ident("模拟轮次")} SET {_sql_ident("当前轮次")} = 1 WHERE id = 1',
+                        'UPDATE 模拟轮次 当前轮次=1',
+                    ),
+                ]:
+                    try:
+                        cursor.execute(sql)
+                        print(f'{label}: {cursor.rowcount} 行')
+                    except Exception as e:
+                        print(f'{label}: 跳过 ({e})')
+            finally:
+                if vendor == 'mysql':
+                    cursor.execute('SET FOREIGN_KEY_CHECKS = 1')
 
     print(
         '清理完成。已保留：写手/用户/平台账号/监管机构账号、'
