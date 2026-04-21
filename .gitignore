@@ -6,3 +6,11 @@ test/reports/
 *.sqlite3
 *.log
 ~$*.xlsx
+# 本地库与日志（不提交）
+db.sqlite3
+debug*.log
+logs/
+.env
+
+# 若不想把真实账号表推上 GitHub，取消下面一行最前面的 # 号
+账号管理.xlsx

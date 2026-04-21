@@ -59,6 +59,11 @@ CASE_DISPLAY_MAP = {
     "test_regulator_submit_blocked_when_platform_under_regulation": "整治中平台重复发起被拦截",
     "test_admin_approve_application_creates_formal_records": "管理员通过申请后按平台拆分写入正式整治记录",
     "test_admin_reject_application_no_formal_record": "管理员驳回申请后不生成正式整治记录",
+    "test_platform_self_patrol_submit_success": "平台负责人提交本平台巡查申请写入待审核",
+    "test_platform_self_patrol_submit_duplicate_pending_rejected": "平台重复提交巡查申请被拦截",
+    "test_platform_self_patrol_submit_end_round_must_be_before_current": "终止轮次不小于当前轮次时被拒绝",
+    "test_platform_self_patrol_submit_wrong_platform_rejected": "平台不能为其他平台编号提交巡查",
+    "test_platform_home_renders_monitoring_section": "平台主页展示平台监测系统与启动巡查入口",
 }
 
 
