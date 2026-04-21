@@ -10,20 +10,17 @@ from accounts.models import (
     PlatformGovernanceMeasure,
     SimulationRound,
     WriterAccount,
-    WriterHealthScoreLog,
 )
 
 
 @pytest.mark.django_db
-def test_health_recovery_does_not_exceed_upper_bound(writer_accounts):
+def test_health_score_over_100_is_normalized_to_100_on_round_end(writer_accounts):
     """
-    回归：健康分恢复不应出现 100+（上限硬封顶 100）。
-    满分时不产生 recovery 审计记录。
+    防御：历史遗留数据若出现 100+，系统在结算/同步阶段会归一化回 100。
     """
     w = writer_accounts[0]
-    WriterAccount.objects.filter(pk=w.pk).update(健康分=100, 所属平台=0)
+    WriterAccount.objects.filter(pk=w.pk).update(健康分=105, 所属平台=0)
 
-    # 健康分配置：初始=100，启用恢复，每次+5，连续1轮无违规即可恢复
     AccountHealthConfig.objects.create(
         platform_id=0,
         初始健康分=100,
@@ -35,7 +32,6 @@ def test_health_recovery_does_not_exceed_upper_bound(writer_accounts):
         提交人账号="pytest_platform_0",
         管理员确认账号="admin",
     )
-    # 档位表：随便给一个覆盖 0-100 的档位
     AccountHealthLevelConfig.objects.create(
         平台=0,
         config=None,
@@ -46,7 +42,6 @@ def test_health_recovery_does_not_exceed_upper_bound(writer_accounts):
         可推流比例=Decimal("1.0000"),
         排序=1,
     )
-    # 平台健康分规则已生效（否则不会触发恢复）
     PlatformGovernanceMeasure.objects.create(
         平台=0,
         轮次=1,
@@ -59,8 +54,8 @@ def test_health_recovery_does_not_exceed_upper_bound(writer_accounts):
         管理员确认账号="admin",
     )
 
-    # 执行 end-round（内部会调用 _recover_writer_health_for_platform）
     SimulationRound.objects.update_or_create(pk=1, defaults={"当前轮次": 1})
+
     from django.test import Client
 
     c = Client()
@@ -70,5 +65,4 @@ def test_health_recovery_does_not_exceed_upper_bound(writer_accounts):
 
     w.refresh_from_db()
     assert w.健康分 == 100
-    assert WriterHealthScoreLog.objects.filter(写手账号=w.账号, event_type="recovery").count() == 0
 

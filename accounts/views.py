@@ -2612,11 +2612,17 @@ def _sync_writer_push_ratios_for_account_health_platform(platform_id: int, round
     if not configs:
         return
     for writer in WriterAccount.objects.filter(所属平台=platform_id):
-        score = int(getattr(writer, '健康分', cfg.初始健康分 or 100))
+        # 健康分硬封顶：系统不允许出现 >100（历史数据若存在也在这里纠正）
+        score_raw = int(getattr(writer, '健康分', cfg.初始健康分 or 100))
+        score = max(0, min(100, score_raw))
         tier, ratio = _resolve_health_tier_and_ratio(score, configs)
         writer.health_tier = tier
         writer.推流系数 = ratio
-        writer.save(update_fields=['health_tier', '推流系数'])
+        if score != score_raw:
+            writer.健康分 = score
+            writer.save(update_fields=['健康分', 'health_tier', '推流系数'])
+        else:
+            writer.save(update_fields=['health_tier', '推流系数'])
 
 
 def _recover_writer_health_for_platform(platform_id: int, round_num: int):
@@ -2633,7 +2639,8 @@ def _recover_writer_health_for_platform(platform_id: int, round_num: int):
     recover_value = max(0, int(cfg.每次恢复分值 or 0))
     if recover_value <= 0:
         return
-    upper = int(getattr(cfg, '初始健康分', 100) or 100)
+    # 健康分硬封顶：永远不超过 100
+    upper = 100
     start_round = max(1, int(round_num) - clean_rounds + 1)
     writers = WriterAccount.objects.filter(所属平台=platform_id)
     level_configs = _get_effective_health_level_configs(round_num, platform_id=platform_id, config_id=cfg.pk)
@@ -2646,10 +2653,19 @@ def _recover_writer_health_for_platform(platform_id: int, round_num: int):
         ).exists()
         if has_violation:
             continue
-        before = int(getattr(writer, '健康分', cfg.初始健康分 or 100))
+        before_raw = int(getattr(writer, '健康分', cfg.初始健康分 or 100))
+        before = max(0, min(upper, before_raw))
         # 恢复上限封顶到“初始健康分”（通常为100）。满分时不做恢复、不写审计，避免出现 100+。
         after = min(before + recover_value, upper)
         if after <= before:
+            # 若历史数据已 >100，这里顺便纠正为 100（不写 recovery 审计）
+            if before != before_raw:
+                tier, ratio = _resolve_health_tier_and_ratio(before, level_configs)
+                writer.健康分 = before
+                writer.health_tier = tier
+                writer.推流系数 = ratio
+                writer.健康分最近更新轮次 = round_num
+                writer.save(update_fields=['健康分', 'health_tier', '推流系数', '健康分最近更新轮次'])
             continue
         tier, ratio = _resolve_health_tier_and_ratio(after, level_configs)
         writer.健康分 = after
@@ -3375,7 +3391,8 @@ def writer_select_body(request):
     if health_rule and clickbait and writer:
         punish_value = int(getattr(health_cfg, '每次违规扣减分值', 10) or 10)
         delta = -punish_value
-        after_score = max(0, before_score + delta)
+        # 健康分硬封顶：永远在 [0,100]
+        after_score = max(0, min(100, before_score + delta))
         new_tier, new_ratio = _resolve_health_tier_and_ratio(after_score, configs)
         writer.健康分 = after_score
         writer.health_tier = new_tier
