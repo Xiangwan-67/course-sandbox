@@ -317,14 +317,14 @@ class CommentAdmin(admin.ModelAdmin):
 
 @admin.register(ArticlePushDetail)
 class ArticlePushDetailAdmin(admin.ModelAdmin):
-    list_display = ['id', '文章', '用户', '是否粉丝']
-    list_filter = ['是否粉丝', '文章']
+    list_display = ['id', '平台', '文章', '用户', '是否粉丝']
+    list_filter = ['平台', '是否粉丝', '文章']
 
 
 @admin.register(ArticlePush)
 class ArticlePushAdmin(admin.ModelAdmin):
-    list_display = ['id', '文章', '用户', '列表类型']
-    list_filter = ['列表类型', '文章']
+    list_display = ['id', '平台', '文章', '用户', '列表类型']
+    list_filter = ['平台', '列表类型', '文章']
 
 
 @admin.register(UserArticleLike)

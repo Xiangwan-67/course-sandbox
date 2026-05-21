@@ -26,7 +26,7 @@ class WriterAccount(models.Model):
 class UserAccount(models.Model):
     """用户账号，对应 Excel Sheet2，存储到表「用户」。"""
     # 所属平台：0=平台1, 1=平台2
-    所属平台 = models.IntegerField(default=0)
+    所属平台 = models.IntegerField(default=0, db_index=True)
     账号 = models.CharField(max_length=64, unique=True)
     密码 = models.CharField(max_length=128)
     # 切换平台后 1 分钟内禁止登录，记录截止时间
@@ -624,8 +624,8 @@ class SimulationRound(models.Model):
 
 class Article(models.Model):
     """写手发布的文章，记录选中标题/正文及对应夸张度、相关度的初始值与校准值。"""
-    写手账号 = models.CharField(max_length=64)
-    轮次 = models.PositiveIntegerField(default=1)  # 发布时所处模拟轮次，用户列表只展示本轮
+    写手账号 = models.CharField(max_length=64, db_index=True)
+    轮次 = models.PositiveIntegerField(default=1, db_index=True)  # 发布时所处模拟轮次，用户列表只展示本轮
     标题 = models.TextField(blank=True)
     标题夸张度_初始值 = models.IntegerField(null=True, blank=True)   # 写手拖动滑块后点「提交」时的夸张度
     标题夸张度_校准值 = models.IntegerField(null=True, blank=True)   # 写手选中的标题对应的实际夸张度
@@ -653,6 +653,9 @@ class Article(models.Model):
         db_table = '文章'
         verbose_name = '文章'
         verbose_name_plural = '文章'
+        indexes = [
+            models.Index(fields=['轮次', '写手账号']),  # 用于榜单查询：某轮次同平台写手文章
+        ]
 
 
 class Comment(models.Model):
@@ -682,6 +685,7 @@ class UserFollowWriter(models.Model):
 
 class ArticlePush(models.Model):
     """文章推送记录：某文章推送到某用户的某列表（关注列表=0 / 发现列表=1），用于平台浏览展示。"""
+    平台 = models.IntegerField(default=0)  # 推送所属平台：0=平台1, 1=平台2
     列表类型 = models.PositiveSmallIntegerField()  # 0=关注列表，1=发现列表
     文章 = models.ForeignKey(Article, on_delete=models.CASCADE, related_name='推送记录')
     用户 = models.ForeignKey(UserAccount, on_delete=models.CASCADE, related_name='被推送文章')
@@ -694,6 +698,7 @@ class ArticlePush(models.Model):
 
 class ArticlePushDetail(models.Model):
     """文章推送明细：记录每篇文章分别推送给了哪些用户，以及该用户是否为写手粉丝。"""
+    平台 = models.IntegerField(default=0)  # 推送所属平台：0=平台1, 1=平台2
     文章 = models.ForeignKey(Article, on_delete=models.CASCADE, related_name='推送明细')
     用户 = models.ForeignKey(UserAccount, on_delete=models.CASCADE, related_name='被推送文章明细')
     是否粉丝 = models.BooleanField(default=False)  # 推送时该用户是否关注了该写手

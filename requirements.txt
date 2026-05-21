@@ -3,4 +3,5 @@ Django>=6.0,<7
 gunicorn
 PyMySQL
 openpyxl
+python-dotenv
 openai
