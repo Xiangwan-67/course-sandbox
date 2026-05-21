@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+from accounts.account_import import import_user_follows_from_sheet
 from accounts.models import PlatformAccount, RegulatorAccount, UserAccount, WriterAccount
 
 
@@ -72,15 +73,46 @@ def load_accounts_from_excel(*, path: Optional[Path] = None) -> LoadedCounts:
             WriterAccount.objects.update_or_create(账号=account, defaults={"密码": pwd})
             w_cnt += 1
 
+        header_u = [
+            str(x).strip() if x is not None else ""
+            for x in (next(ws_users.iter_rows(min_row=1, max_row=1, values_only=True)) or [])
+        ]
+        col_u = {name: idx for idx, name in enumerate(header_u) if name}
+        idx_u_acc = col_u.get("账号", 0)
+        idx_u_pwd = col_u.get("密码", 1)
+        idx_u_plat = col_u.get("所属平台")
+
         for row in _iter_rows(ws_users):
             if not row:
                 continue
-            account = str(row[0]).strip() if row[0] is not None else ""
-            pwd = str(row[1]).strip() if len(row) > 1 and row[1] is not None else ""
+            account = str(row[idx_u_acc]).strip() if row[idx_u_acc] is not None else ""
+            pwd = (
+                str(row[idx_u_pwd]).strip()
+                if idx_u_pwd is not None and idx_u_pwd < len(row) and row[idx_u_pwd] is not None
+                else ""
+            )
             if not account or not pwd:
                 continue
-            UserAccount.objects.update_or_create(账号=account, defaults={"密码": pwd})
+            defaults = {"密码": pwd}
+            if (
+                idx_u_plat is not None
+                and idx_u_plat < len(row)
+                and row[idx_u_plat] is not None
+            ):
+                try:
+                    defaults["所属平台"] = int(row[idx_u_plat])
+                except (TypeError, ValueError):
+                    pass
+            UserAccount.objects.update_or_create(账号=account, defaults=defaults)
             u_cnt += 1
+
+        writer_platform_by_account = dict(
+            WriterAccount.objects.values_list("账号", "所属平台")
+        )
+        import_user_follows_from_sheet(
+            ws_users,
+            writer_platform_by_account=writer_platform_by_account,
+        )
 
         if ws_platforms is not None:
             for row in _iter_rows(ws_platforms):

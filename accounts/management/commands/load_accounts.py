@@ -2,8 +2,8 @@
 """
 从 账号管理.xlsx 导入账号到「写手」「用户」「平台账号」「监管机构账号」表。
 
-- Sheet1 -> 写手（列：账号、密码）
-- Sheet2 -> 用户（列：账号、密码）
+- Sheet1 -> 写手（列：账号、密码；可选「所属平台」）
+- Sheet2 -> 用户（列：账号、密码；可选「所属平台」；可选「关注」初始关注写手列表）
 - Sheet「平台」（若存在）-> 平台账号（列：账号、密码、对应编号）
 - Sheet「监管机构」（若存在）-> 监管机构（列：账号、密码、负责平台）
 """
@@ -15,6 +15,7 @@ import openpyxl
 
 from accounts.models import WriterAccount, UserAccount, PlatformAccount, RegulatorAccount
 from accounts.platform_scope import validate_regulator_platform_list
+from accounts.account_import import import_user_follows_from_sheet
 
 
 class Command(BaseCommand):
@@ -70,37 +71,40 @@ class Command(BaseCommand):
 
         # Sheet1 -> 写手
         ws1 = wb.worksheets[0]
-        rows1 = list(ws1.iter_rows(min_row=2, values_only=True))
-        count_w = 0
-        for row in rows1:
-            if not row or len(row) < 2:
-                continue
-            account, password = str(row[0]).strip(), str(row[1] or '').strip()
-            if not account:
-                continue
-            WriterAccount.objects.update_or_create(
-                账号=account,
-                defaults={'密码': password},
-            )
-            count_w += 1
-        self.stdout.write(self.style.SUCCESS(f'写手: 导入 {count_w} 条。'))
+        count_w = self._import_role_accounts(
+            ws1,
+            model=WriterAccount,
+            label='写手',
+        )
 
         # Sheet2 -> 用户
         ws2 = wb.worksheets[1]
-        rows2 = list(ws2.iter_rows(min_row=2, values_only=True))
-        count_u = 0
-        for row in rows2:
-            if not row or len(row) < 2:
-                continue
-            account, password = str(row[0]).strip(), str(row[1] or '').strip()
-            if not account:
-                continue
-            UserAccount.objects.update_or_create(
-                账号=account,
-                defaults={'密码': password},
+        count_u = self._import_role_accounts(
+            ws2,
+            model=UserAccount,
+            label='用户',
+        )
+
+        writer_platform_by_account = dict(
+            WriterAccount.objects.values_list('账号', '所属平台')
+        )
+        try:
+            users_with_follows, follow_rows = import_user_follows_from_sheet(
+                ws2,
+                writer_platform_by_account=writer_platform_by_account,
             )
-            count_u += 1
-        self.stdout.write(self.style.SUCCESS(f'用户: 导入 {count_u} 条。'))
+        except ValueError as e:
+            self.stderr.write(self.style.ERROR(str(e)))
+            wb.close()
+            return
+        if users_with_follows:
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f'用户初始关注: {users_with_follows} 名用户，共 {follow_rows} 条关注（已校验同平台）。'
+                )
+            )
+        else:
+            self.stdout.write('用户初始关注: Sheet 无「关注」列或均为空，已跳过。')
 
         # Sheet「平台」 -> 平台账号（若存在）
         ws_platform = wb['平台'] if '平台' in wb.sheetnames else (wb.worksheets[2] if len(wb.worksheets) >= 3 else None)
@@ -184,6 +188,35 @@ class Command(BaseCommand):
             self.stdout.write('监管机构: 未找到 Sheet「监管机构」，已跳过。')
 
         wb.close()
+
+    def _import_role_accounts(self, ws, *, model, label):
+        header = [
+            str(x).strip() if x is not None else ''
+            for x in (next(ws.iter_rows(min_row=1, max_row=1, values_only=True)) or [])
+        ]
+        col_map = {name: idx for idx, name in enumerate(header) if name}
+        idx_account = col_map.get('账号', 0)
+        idx_password = col_map.get('密码', 1)
+        idx_platform = col_map.get('所属平台')
+        rows = list(ws.iter_rows(min_row=2, values_only=True))
+        count = 0
+        for row in rows:
+            if not row:
+                continue
+            account = str(row[idx_account] or '').strip() if idx_account < len(row) else ''
+            password = str(row[idx_password] or '').strip() if idx_password < len(row) else ''
+            if not account:
+                continue
+            defaults = {'密码': password}
+            if idx_platform is not None and idx_platform < len(row) and row[idx_platform] is not None:
+                try:
+                    defaults['所属平台'] = int(row[idx_platform])
+                except (TypeError, ValueError):
+                    pass
+            model.objects.update_or_create(账号=account, defaults=defaults)
+            count += 1
+        self.stdout.write(self.style.SUCCESS(f'{label}: 导入 {count} 条。'))
+        return count
 
     @staticmethod
     def _parse_regulator_platform_list(cell):
