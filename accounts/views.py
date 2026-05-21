@@ -2136,28 +2136,9 @@ def _process_article_reports(platform_id: int, round_num: int):
             if art.is_clickbait is True or art.is_clickbait is False:
                 judged_clickbait = bool(art.is_clickbait)
             else:
-                # 复用平台治理「标题党检测」的判定口径（阈值 X/Y + 文章校准/初始值），但不强依赖该功能包是否发布
-                # 目的：用户举报达阈值时，总能得到明确 True/False 判定
-                from accounts.models import ClickbaitDetectionConfig
+                from accounts.clickbait_judge import judge_clickbait_by_config
 
-                cfg_clickbait = (
-                    ClickbaitDetectionConfig.objects
-                    .filter(platform_id=platform_id, status='active')
-                    .order_by('-id')
-                    .first()
-                )
-                try:
-                    X_threshold = int(getattr(cfg_clickbait, '标题夸张度阈值X', 4) or 4) if cfg_clickbait else 4
-                except Exception:
-                    X_threshold = 4
-                try:
-                    Y_threshold = int(getattr(cfg_clickbait, '内容相关度阈值Y', 3) or 3) if cfg_clickbait else 3
-                except Exception:
-                    Y_threshold = 3
-
-                X = int(art.标题夸张度_校准值 or art.标题夸张度_初始值 or 0)
-                Y = int(art.内容相关度_校准值 or art.内容相关度_初始值 or 0)
-                judged_clickbait = (X >= X_threshold) and (Y < Y_threshold)
+                judged_clickbait = judge_clickbait_by_config(art, platform_id)
                 art.is_clickbait = judged_clickbait
 
             # 无论判定结果如何，均标记该文章已走过用户举报审核机制
@@ -2240,14 +2221,10 @@ def _get_effective_governance_measure(platform_id: int, measure_type: str, round
 
 
 def is_clickbait(article, platform_id: int, round_num: int) -> bool:
-    """标题党检测 — 可插拔接口。
+    """标题党检测 — 可插拔接口（发文自动检测等）。
 
-    判定规则（使用管理员生效配置）：
-    当 写手文章的 标题夸张度_校准值 >= 标题夸张度阈值X 且 内容相关度_校准值 < 内容相关度阈值Y 时，
-    判定为标题党。
-
-    返回 True 表示该文章被判定为标题党，False 表示非标题党。
-    若平台未启用标题党检测功能包，直接返回 False。
+    判定口径与 judge_clickbait_by_config 相同，但要求平台已发布并生效「标题党检测」治理包，
+    且存在 active 的 ClickbaitDetectionConfig。
     """
     measure = _get_effective_governance_measure(platform_id, 'clickbait_detection', round_num)
     if not measure:
@@ -2260,20 +2237,9 @@ def is_clickbait(article, platform_id: int, round_num: int) -> bool:
     )
     if not cfg:
         return False
+    from accounts.clickbait_judge import judge_clickbait_by_config
 
-    try:
-        X_threshold = int(getattr(cfg, '标题夸张度阈值X', 4) or 4)
-    except Exception:
-        X_threshold = 4
-    try:
-        Y_threshold = int(getattr(cfg, '内容相关度阈值Y', 3) or 3)
-    except Exception:
-        Y_threshold = 3
-
-    X = int(article.标题夸张度_校准值 or article.标题夸张度_初始值 or 0)
-    Y = int(article.内容相关度_校准值 or article.内容相关度_初始值 or 0)
-
-    return (X >= X_threshold) and (Y < Y_threshold)
+    return judge_clickbait_by_config(article, platform_id)
 
 
 def _get_admin_auto_patrol_ratio():
@@ -2331,6 +2297,8 @@ def _compute_platform_patrol_metrics(
     art_by_id = {a.id: a for a in articles}
     ordered = [art_by_id[i] for i in sampled_ids if i in art_by_id]
 
+    from accounts.clickbait_judge import judge_clickbait_by_config
+
     clickbait_n = 0
     for art in ordered:
         if art.is_clickbait is True:
@@ -2338,7 +2306,7 @@ def _compute_platform_patrol_metrics(
         elif art.is_clickbait is False:
             pass
         else:
-            if is_clickbait(art, platform_id, art.轮次):
+            if judge_clickbait_by_config(art, platform_id):
                 clickbait_n += 1
 
     n = len(sampled_ids)
