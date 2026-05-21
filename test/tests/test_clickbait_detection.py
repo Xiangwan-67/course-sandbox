@@ -42,6 +42,7 @@ def test_clickbait_detection_disabled_no_result_recorded(client_writer_logged_in
     assert ClickbaitDetectionResult.objects.filter(文章_id=article_id).count() == 0
     art = Article.objects.get(pk=article_id)
     assert art.is_clickbait is None
+    assert art.clickbait_auto_executed is False
 
     log_text = _read_log(action_log_path)
     assert "进入标题党检测功能" not in log_text
@@ -59,11 +60,12 @@ def test_clickbait_detection_enabled_records_and_updates(enable_clickbait_measur
     assert res is not None
     assert res.自动检测是否执行 is True
     assert res.检测结果 is True
+    assert res.判定来源 == 'auto'
 
     art = Article.objects.get(pk=article_id)
     assert art.is_clickbait is True
-    assert art.method_auto_rule is True
-    assert art.clickbait_detected_at == art.轮次
+    assert art.clickbait_source == 'auto'
+    assert art.clickbait_auto_executed is True
 
     log_text = _read_log(action_log_path)
     assert f"文章{article_id}" in log_text
@@ -88,6 +90,11 @@ def test_clickbait_detection_boundary_conditions(enable_clickbait_measure, clien
     res1 = ClickbaitDetectionResult.objects.filter(文章_id=a1).order_by("-id").first()
     assert res1 is not None
     assert res1.检测结果 is False
+    assert res1.判定来源 == 'auto'
+    art1 = Article.objects.get(pk=a1)
+    assert art1.is_clickbait is False
+    assert art1.clickbait_source == 'auto'
+    assert art1.clickbait_auto_executed is True
 
     # case2: X==4, Y==2 => 标题党
     a2 = _publish_and_detect(client, title_pos=0, body_pos=0, title_init=5, body_init=3)

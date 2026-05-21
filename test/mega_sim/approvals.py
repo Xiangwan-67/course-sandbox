@@ -48,7 +48,7 @@ def approve_pending_configs_and_measures(*, admin_account: str = "mega_sim_admin
 def manual_review_reports_for_round(*, report_round: int, admin_account: str = "mega_sim_admin") -> int:
     """
     对某一举报轮次的 pending 举报做“人工审核通过/不通过”覆盖：
-    - 达阈值：通过（置 Article.is_clickbait=True, method_user=True；ArticleReport 审核状态=approved）
+    - 达阈值：通过（置 Article.is_clickbait=True, clickbait_source=user_report；ArticleReport 审核状态=approved）
     - 未达阈值：保持 pending（等价于未处理/未通过）
 
     阈值/审核方式来自 UserReportConfig 的最新 active 记录（按 platform_id）。
@@ -88,7 +88,9 @@ def manual_review_reports_for_round(*, report_round: int, admin_account: str = "
             read_cnt = int(art.点击量 or 1)
             ratio = report_cnt / float(read_cnt)
             if ratio >= float(threshold):
-                Article.objects.filter(pk=art_id).update(is_clickbait=True, method_user=True)
+                Article.objects.filter(pk=art_id).update(
+                    is_clickbait=True, clickbait_source='user_report'
+                )
                 ArticleReport.objects.filter(platform_id=pid, 文章_id=art_id, 举报轮次=report_round).update(审核状态="approved")
                 reviewed += 1
 

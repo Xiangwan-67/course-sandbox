@@ -302,7 +302,7 @@ class ArticleAdmin(admin.ModelAdmin):
         'id', '写手账号', '标题', '标题夸张度_初始值', '标题夸张度_校准值', '正文',
         '内容相关度_初始值', '内容相关度_校准值', '已推送', '点击量', '点赞量', '收藏量',
         '吸粉数', '取关数', '阅读完成量', '报酬',
-        'is_clickbait', 'method_auto_rule', 'method_user', 'report_count_current_round',
+        'is_clickbait', 'clickbait_source', 'clickbait_auto_executed', 'report_count_current_round',
         '创建时间',
     ]
     list_filter = ['写手账号', 'is_clickbait']
@@ -423,8 +423,11 @@ class ClickbaitDetectionConfigAdmin(admin.ModelAdmin):
 
 @admin.register(ClickbaitDetectionResult)
 class ClickbaitDetectionResultAdmin(admin.ModelAdmin):
-    list_display = ['id', '文章', '轮次', '平台', '标题夸张度X', '内容相关度Y', '自动检测是否执行', '检测结果', '创建时间']
-    list_filter = ['平台', '轮次', '检测结果']
+    list_display = [
+        'id', '文章', '轮次', '平台', '判定来源', '标题夸张度X', '内容相关度Y',
+        '判定阈值X', '判定阈值Y', '自动检测是否执行', '检测结果', '创建时间',
+    ]
+    list_filter = ['平台', '轮次', '判定来源', '检测结果']
 
 
 @admin.register(TrafficPenaltyConfig)

@@ -644,9 +644,20 @@ class Article(models.Model):
     报酬 = models.IntegerField(default=0)   # 该文章对应报酬，历史列表中展示
 
     is_clickbait = models.BooleanField(null=True, blank=True, default=None)
-    clickbait_detected_at = models.IntegerField(null=True, blank=True)
-    method_auto_rule = models.BooleanField(null=True, blank=True, default=None)
-    method_user = models.BooleanField(null=True, blank=True, default=None)
+    # 当前生效结论来源（最新一次 auto / user_report 覆盖；巡查不写此字段）
+    CLICKBAIT_SOURCE_CHOICES = [
+        ('auto', '自动检测'),
+        ('user_report', '用户举报'),
+    ]
+    clickbait_source = models.CharField(
+        max_length=20,
+        choices=CLICKBAIT_SOURCE_CHOICES,
+        blank=True,
+        default='',
+        verbose_name='检测来源',
+    )
+    # 发文时是否执行过标题党自动检测（治理包生效）；与 is_clickbait 结论、clickbait_source 独立，举报不覆盖
+    clickbait_auto_executed = models.BooleanField(default=False, verbose_name='标题党自动检测已执行')
     report_count_current_round = models.IntegerField(default=0)
 
     class Meta:
@@ -796,13 +807,23 @@ class ClickbaitDetectionConfig(models.Model):
 
 
 class ClickbaitDetectionResult(models.Model):
-    """标题党检测结果记录（每篇文章一条）。"""
+    """标题党判定事件（可多篇次/多来源；Article 上仅保留 auto/user_report 当前结论）。"""
+
+    JUDGMENT_SOURCE_CHOICES = [
+        ('auto', '自动检测'),
+        ('user_report', '用户举报'),
+        ('patrol', '平台巡查'),
+    ]
 
     文章 = models.ForeignKey(Article, on_delete=models.CASCADE, related_name='标题党检测结果')
     轮次 = models.PositiveIntegerField()
     平台 = models.IntegerField()
     标题夸张度X = models.IntegerField()
     内容相关度Y = models.IntegerField()
+    判定阈值X = models.IntegerField(default=4)
+    判定阈值Y = models.IntegerField(default=3)
+    config_id = models.IntegerField(null=True, blank=True)
+    判定来源 = models.CharField(max_length=20, choices=JUDGMENT_SOURCE_CHOICES, default='auto')
     自动检测是否执行 = models.BooleanField(default=False)
     检测结果 = models.BooleanField(null=True, blank=True)  # True=标题党, False=非标题党, null=未执行
     创建时间 = models.DateTimeField(auto_now_add=True)

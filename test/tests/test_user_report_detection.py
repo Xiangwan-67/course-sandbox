@@ -168,7 +168,7 @@ def test_end_round_without_measure_does_not_trigger_threshold_review(client_user
 
     article.refresh_from_db()
     assert article.is_clickbait is None
-    assert article.method_user is None
+    assert article.clickbait_source in ('', None) or not article.clickbait_source
 
     rec = ArticleReport.objects.filter(文章=article, 举报人=user.账号, 举报轮次=round_num).first()
     assert rec is not None
@@ -213,7 +213,7 @@ def test_end_round_with_auto_review_approves(
     article.refresh_from_db()
     assert article.report_count_current_round == 1
     assert article.is_clickbait is True
-    assert article.method_user is True
+    assert article.clickbait_source == 'user_report'
 
     rec = ArticleReport.objects.filter(文章=article, 举报人=user.账号, 举报轮次=round_num).first()
     assert rec is not None
@@ -262,7 +262,7 @@ def test_end_round_with_manual_review_keeps_pending(
     assert article.report_count_current_round == 1
     # 达阈值后无论 auto/manual 都会走标题党判定流程，并标记已走过用户举报审核机制
     assert article.is_clickbait is True
-    assert article.method_user is True
+    assert article.clickbait_source == 'user_report'
 
     rec = ArticleReport.objects.filter(文章=article, 举报人=user.账号, 举报轮次=round_num).first()
     assert rec is not None

@@ -552,7 +552,14 @@ def platform_round_result(request):
 
     auto_clickbait_articles = (
         ClickbaitDetectionResult.objects
-        .filter(平台=platform_id, 轮次=target_round, 检测结果=True)
+        .filter(平台=platform_id, 轮次=target_round, 判定来源='auto', 检测结果=True)
+        .values('文章_id')
+        .distinct()
+        .count()
+    )
+    auto_cleared_articles = (
+        ClickbaitDetectionResult.objects
+        .filter(平台=platform_id, 轮次=target_round, 判定来源='auto', 检测结果=False)
         .values('文章_id')
         .distinct()
         .count()
@@ -658,6 +665,7 @@ def platform_round_result(request):
     stats = {
         'article_count': article_count,
         'auto_clickbait_articles': auto_clickbait_articles,
+        'auto_cleared_articles': auto_cleared_articles,
         'approved_report_articles': approved_report_articles,
         'final_violation_articles': final_violation_articles,
         'traffic_penalized_articles': traffic_penalized_articles,
@@ -2071,7 +2079,7 @@ def _process_article_reports(platform_id: int, round_num: int):
     3. 达阈值后，无论审核方式 auto/manual，均要求走一遍“是否标题党”的判定流程：
        - 若 Article.is_clickbait 已明确为 True/False：直接使用该值；
        - 否则：复用平台治理「标题党检测」流程进行判定，并同步写回 Article.is_clickbait；
-       同时总是更新 Article.method_user=True，表示已走过用户举报审核机制。
+       同时更新 Article.clickbait_source=user_report（覆盖先前 auto）。
     4. 兼容历史逻辑：auto 可直接更新举报记录为 approved；manual 保持 pending（待管理员），但文章字段仍会更新。
 
     由 end_round 结算流程调用。当前为预留接口，待 end_round 改造时集成。
@@ -2132,18 +2140,23 @@ def _process_article_reports(platform_id: int, round_num: int):
         read_count = art.点击量 or 1
         ratio = Decimal(str(cnt)) / Decimal(str(read_count))
         if ratio >= threshold:
-            # 达阈值后必须判定是否标题党（优先使用明确的 is_clickbait；否则复用平台治理标题党检测流程）
+            from accounts.clickbait_judge import judge_clickbait_by_config, record_clickbait_judgment
+
             if art.is_clickbait is True or art.is_clickbait is False:
                 judged_clickbait = bool(art.is_clickbait)
             else:
-                from accounts.clickbait_judge import judge_clickbait_by_config
-
                 judged_clickbait = judge_clickbait_by_config(art, platform_id)
-                art.is_clickbait = judged_clickbait
 
-            # 无论判定结果如何，均标记该文章已走过用户举报审核机制
-            art.method_user = True
-            art.save(update_fields=['is_clickbait', 'method_user'])
+            record_clickbait_judgment(
+                art,
+                platform_id,
+                round_num,
+                source='user_report',
+                result=judged_clickbait,
+                update_article=True,
+            )
+            art.refresh_from_db()
+            judged_clickbait = bool(art.is_clickbait)
 
             # auto: 自动审核直接落举报记录状态；manual: 保持 pending，留待管理员
             if review_method == 'auto':
@@ -2297,17 +2310,26 @@ def _compute_platform_patrol_metrics(
     art_by_id = {a.id: a for a in articles}
     ordered = [art_by_id[i] for i in sampled_ids if i in art_by_id]
 
-    from accounts.clickbait_judge import judge_clickbait_by_config
+    from accounts.clickbait_judge import judge_clickbait_by_config, record_clickbait_judgment
 
     clickbait_n = 0
     for art in ordered:
         if art.is_clickbait is True:
-            clickbait_n += 1
+            judged = True
         elif art.is_clickbait is False:
-            pass
+            judged = False
         else:
-            if judge_clickbait_by_config(art, platform_id):
-                clickbait_n += 1
+            judged = judge_clickbait_by_config(art, platform_id)
+        record_clickbait_judgment(
+            art,
+            platform_id,
+            art.轮次 or exec_round,
+            source='patrol',
+            result=judged,
+            update_article=False,
+        )
+        if judged:
+            clickbait_n += 1
 
     n = len(sampled_ids)
     if n == 0:
@@ -3343,29 +3365,23 @@ def writer_select_body(request):
     writer_platform = getattr(writer, '所属平台', 0) if writer else 0
     round_num = article.轮次
 
-    # 标题党检测：仅当功能包生效时才执行并落库结果（符合测试说明书要求）
-    X = article.标题夸张度_校准值 or article.标题夸张度_初始值 or 0
-    Y = article.内容相关度_校准值 or article.内容相关度_初始值 or 0
+    # 标题党检测：仅当功能包生效时才执行并落库（符合测试说明书要求）
     detection_executed = bool(_get_effective_governance_measure(writer_platform, 'clickbait_detection', round_num))
     clickbait = False
     if detection_executed:
-        clickbait = is_clickbait(article, writer_platform, round_num)
-        # 记录检测结果
-        ClickbaitDetectionResult.objects.create(
-            文章=article,
-            轮次=round_num,
-            平台=writer_platform,
-            标题夸张度X=X,
-            内容相关度Y=Y,
-            自动检测是否执行=True,
-            检测结果=clickbait,
+        from accounts.clickbait_judge import judge_clickbait_by_config, record_clickbait_judgment
+
+        clickbait = judge_clickbait_by_config(article, writer_platform)
+        record_clickbait_judgment(
+            article,
+            writer_platform,
+            round_num,
+            source='auto',
+            result=clickbait,
+            update_article=True,
         )
-        # 更新文章标题党标记
-        article.is_clickbait = clickbait
-        article.clickbait_detected_at = round_num
-        if clickbait:
-            article.method_auto_rule = True
-        article.save(update_fields=['is_clickbait', 'clickbait_detected_at', 'method_auto_rule'])
+        article.refresh_from_db()
+        clickbait = bool(article.is_clickbait)
         action_log(
             f"{_platform_name(writer_platform)} 写手{account} 文章{article.pk} 进入标题党检测功能，"
             f"检测结果为{'标题党' if clickbait else '非标题党'}，已更新文章表与标题党检测结果表。"
