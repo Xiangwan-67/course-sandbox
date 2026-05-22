@@ -1,0 +1,270 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block title %}模拟看板 | {{ block.super }}{% endblock %}
+
+{% block content %}
+<h1>模拟看板</h1>
+<p style="margin-bottom: 12px;">
+  <a href="{% url 'admin_sandbox_ops' %}">← 沙盘运营台</a>
+  · 当前模拟轮次：<strong>{{ current_round }}</strong>
+</p>
+
+<style>
+  .monitor-section { margin: 20px 0; padding: 14px; border: 1px solid #ccc; background: #fafafa; }
+  .monitor-section h2 { margin-top: 0; font-size: 1.1em; }
+  .monitor-hint { color: #666; font-size: 12px; margin: 6px 0 12px; }
+  .monitor-toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 12px; }
+  .monitor-summary { padding: 8px 12px; background: #fff; border: 1px solid #ddd; margin-bottom: 12px; }
+  .monitor-summary.ready { background: #e8f5e9; border-color: #2e7d32; font-weight: bold; }
+  .platform-block { margin: 14px 0; padding: 10px; background: #fff; border: 1px solid #e0e0e0; }
+  .platform-block h3 { margin: 0 0 8px; font-size: 14px; }
+  .dot-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+  .dot {
+    width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0;
+    cursor: default;
+  }
+  .dot.pending { background: #bbb; }
+  .dot.published { background: #2e7d32; }
+  .dot.user-dot { width: 10px; height: 10px; }
+  .gov-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .gov-chip {
+    padding: 4px 10px; border-radius: 4px; color: #fff; font-size: 12px;
+  }
+  .reg-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .reg-table th, .reg-table td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; }
+  .reg-table th { background: #f0f0f0; }
+  .pending-links a { margin-right: 12px; }
+</style>
+
+<!-- 用户分布：首屏静态 -->
+<section class="monitor-section" id="user-monitor">
+  <h2>用户平台分布</h2>
+  <p class="monitor-hint">各平台用户账号分布（读用户表当前「所属平台」；不随看板轮次/刷新变化）。</p>
+  {% for plat in users.platforms %}
+  <div class="platform-block">
+    <h3>{{ plat.platform_name }} ({{ plat.platform_id }}) — {{ plat.user_count }} 人</h3>
+    <div class="dot-grid">
+      {% for u in plat.users %}
+      <span class="dot user-dot" style="background: {{ plat.color }};" title="{{ u.account }}"></span>
+      {% empty %}
+      <span class="monitor-hint">暂无用户</span>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+</section>
+
+<!-- 写手发文：实时 -->
+<section class="monitor-section">
+  <h2>写手本轮完稿</h2>
+  <p class="monitor-hint">灰点=本轮尚未完稿（标题与正文均非空才算绿点）。等待本区全部绿点后再让用户登录沙盘。</p>
+  <div class="monitor-toolbar">
+    <label>统计轮次
+      <select id="round-select">
+        {% for r in round_choices %}
+        <option value="{{ r }}" {% if r == display_round %}selected{% endif %}>第 {{ r }} 轮</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="button" class="default" id="btn-refresh-writers">刷新统计</button>
+    <span id="writers-updated" class="monitor-hint"></span>
+  </div>
+  <div id="writer-monitor"></div>
+</section>
+
+<!-- 治理：随轮次 -->
+<section class="monitor-section">
+  <h2>平台治理功能包</h2>
+  <p class="monitor-hint">随「统计轮次」下拉更新；「刷新统计」不更新本区。</p>
+  <div id="governance-monitor"></div>
+</section>
+
+<!-- 监管：首屏 + 轮次区巡查数由 JS 更新 -->
+<section class="monitor-section" id="regulator-monitor">
+  <h2>监管摘要</h2>
+  <p class="monitor-hint">待审批请至运营台处理；下方「本轮巡查次数」随统计轮次下拉变化。</p>
+
+  <div class="pending-links" style="margin-bottom: 12px;">
+    <strong>待审批：</strong>
+    <a href="{% url 'admin_sandbox_ops' %}?tab=regulator">专项整治 {{ regulator.pending.regulation }}</a>
+    <a href="{% url 'admin_sandbox_ops' %}?tab=regulator">监管巡查 {{ regulator.pending.patrol }}</a>
+    <a href="{% url 'admin_sandbox_ops' %}?tab=regulator">平台自查 {{ regulator.pending.self_patrol }}</a>
+    <a href="{% url 'admin_sandbox_ops' %}?tab=regulator">罚款 {{ regulator.pending.fine }}</a>
+  </div>
+
+  <h3 style="font-size: 14px;">进行中专项整治（统计轮次内）</h3>
+  <p id="reg-active-empty" class="monitor-hint" {% if regulator.active_actions %}style="display:none"{% endif %}>当前统计轮次无进行中专项整治</p>
+  <table class="reg-table" id="reg-active-table" {% if not regulator.active_actions %}style="display:none"{% endif %}>
+    <thead><tr><th>行动编号</th><th>平台</th><th>轮次区间</th><th>原因</th></tr></thead>
+    <tbody id="reg-active-body">
+    {% for a in regulator.active_actions %}
+      <tr>
+        <td>{{ a.action_id }}</td>
+        <td>{{ a.platform_name }}</td>
+        <td>第 {{ a.start_round }}–{{ a.end_round }} 轮</td>
+        <td>{{ a.reason }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  <h3 style="font-size: 14px; margin-top: 16px;">本轮巡查执行次数</h3>
+  <div id="regulator-round-panel"></div>
+
+  <h3 style="font-size: 14px; margin-top: 16px;">各平台最近生效罚款（≤ 统计轮次）</h3>
+  <table class="reg-table">
+    <thead><tr><th>平台</th><th>执行轮次</th><th>档次</th><th>监管成本数值</th></tr></thead>
+    <tbody>
+    {% for f in regulator.fines %}
+      <tr>
+        <td>{{ f.platform_name }}</td>
+        {% if f.has_fine %}
+        <td>第 {{ f.exec_round }} 轮</td>
+        <td>{{ f.tier }}</td>
+        <td>{{ f.supervision_cost }}</td>
+        {% else %}
+        <td colspan="3" class="monitor-hint">无</td>
+        {% endif %}
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<script>
+(function() {
+  const writersUrl = "{% url 'admin_sandbox_monitor_api_writers' %}";
+  const governanceUrl = "{% url 'admin_sandbox_monitor_api_governance' %}";
+  const platformNames = {{ platform_names_json|safe }};
+
+  function escapeHtml(s) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  function renderWriters(data) {
+    const el = document.getElementById('writer-monitor');
+    const sum = data.summary || {};
+    let html = '<div class="monitor-summary' + (sum.all_published ? ' ready' : '') + '">';
+    html += '已完稿 ' + (sum.published_writers || 0) + ' / ' + (sum.total_writers || 0);
+    if (sum.all_published) {
+      html += ' — 可安排用户进场';
+    }
+    html += '</div>';
+
+    const platforms = (data.writers && data.writers.platforms) || [];
+    platforms.forEach(function(plat) {
+      html += '<div class="platform-block">';
+      html += '<h3>' + escapeHtml(plat.platform_name) + ' (' + plat.platform_id + ') — 已完稿 '
+        + plat.published_count + ' / ' + plat.writer_count + '</h3>';
+      html += '<div class="dot-grid">';
+      (plat.writers || []).forEach(function(w) {
+        const cls = w.published ? 'published' : 'pending';
+        html += '<span class="dot ' + cls + '" title="' + escapeHtml(w.account) + '"></span>';
+      });
+      html += '</div></div>';
+    });
+    el.innerHTML = html;
+    document.getElementById('writers-updated').textContent =
+      '最后更新：' + new Date().toLocaleString('zh-CN');
+  }
+
+  function renderGovernance(data) {
+    const el = document.getElementById('governance-monitor');
+    let html = '<p class="monitor-hint">第 ' + data.round + ' 轮生效措施</p>';
+    const platforms = (data.governance && data.governance.platforms) || [];
+    platforms.forEach(function(plat) {
+      html += '<div class="platform-block">';
+      html += '<h3>' + escapeHtml(plat.platform_name) + ' (' + plat.platform_id + ')</h3>';
+      html += '<div class="gov-chips">';
+      if (!plat.measures || !plat.measures.length) {
+        html += '<span class="monitor-hint">无生效功能包</span>';
+      } else {
+        plat.measures.forEach(function(m) {
+          html += '<span class="gov-chip" style="background:' + m.color + ';" title="' + escapeHtml(m.label) + '">'
+            + escapeHtml(m.name) + ' · ' + escapeHtml(m.label) + '</span>';
+        });
+      }
+      html += '</div></div>';
+    });
+    el.innerHTML = html;
+
+    const rr = data.regulator_round || {};
+    const patrol = rr.patrol_by_platform || {};
+    const selfP = rr.self_patrol_by_platform || {};
+    let rhtml = '<table class="reg-table"><thead><tr><th>平台</th><th>监管巡查</th><th>平台自查</th></tr></thead><tbody>';
+    Object.keys(patrol).sort().forEach(function(pid) {
+      const name = platformNames[pid] || ('平台' + pid);
+      rhtml += '<tr><td>' + escapeHtml(name) + '</td><td>' + (patrol[pid] || 0)
+        + '</td><td>' + (selfP[pid] || 0) + '</td></tr>';
+    });
+    rhtml += '</tbody></table>';
+    document.getElementById('regulator-round-panel').innerHTML = rhtml;
+
+    const actions = data.active_regulation_actions || [];
+    const tbody = document.getElementById('reg-active-body');
+    const emptyEl = document.getElementById('reg-active-empty');
+    const tableEl = document.getElementById('reg-active-table');
+    if (tbody && emptyEl && tableEl) {
+      if (!actions.length) {
+        tbody.innerHTML = '';
+        emptyEl.style.display = '';
+        tableEl.style.display = 'none';
+      } else {
+        emptyEl.style.display = 'none';
+        tableEl.style.display = '';
+        let ahtml = '';
+        actions.forEach(function(a) {
+          ahtml += '<tr><td>' + escapeHtml(a.action_id) + '</td><td>' + escapeHtml(a.platform_name)
+            + '</td><td>第 ' + a.start_round + '–' + a.end_round + ' 轮</td><td>' + escapeHtml(a.reason) + '</td></tr>';
+        });
+        tbody.innerHTML = ahtml;
+      }
+    }
+  }
+
+  function getRound() {
+    return document.getElementById('round-select').value;
+  }
+
+  function fetchWriters() {
+    const round = getRound();
+    return fetch(writersUrl + '?round=' + encodeURIComponent(round), {
+      headers: { 'Accept': 'application/json' },
+      credentials: 'same-origin',
+    }).then(function(r) {
+      if (!r.ok) throw new Error('writers API ' + r.status);
+      return r.json();
+    }).then(renderWriters);
+  }
+
+  function fetchGovernance() {
+    const round = getRound();
+    return fetch(governanceUrl + '?round=' + encodeURIComponent(round), {
+      headers: { 'Accept': 'application/json' },
+      credentials: 'same-origin',
+    }).then(function(r) {
+      if (!r.ok) throw new Error('governance API ' + r.status);
+      return r.json();
+    }).then(renderGovernance);
+  }
+
+  document.getElementById('btn-refresh-writers').addEventListener('click', function() {
+    fetchWriters().catch(function(e) { alert(e.message || e); });
+  });
+
+  document.getElementById('round-select').addEventListener('change', function() {
+    Promise.all([fetchWriters(), fetchGovernance()]).catch(function(e) { alert(e.message || e); });
+  });
+
+  // 首屏：写手 + 治理（用户区已 SSR）
+  const initialWriters = {{ writers_json|safe }};
+  const initialGovernance = {{ governance_json|safe }};
+  renderWriters(initialWriters);
+  renderGovernance(initialGovernance);
+})();
+</script>
+
+{% endblock %}

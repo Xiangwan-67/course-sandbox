@@ -46,6 +46,10 @@ def perform_end_round() -> Dict[str, Any]:
                 settled_cycle_profit.append({'platform_id': pid, 'cycle_index': cycle_index})
         settled.append({'platform_id': pid})
 
+    from accounts.round_snapshot import capture_round_snapshot
+
+    capture_round_snapshot(round_to_settle)
+
     SimulationRound.objects.filter(pk=1).update(当前轮次=F('当前轮次') + 1)
     new_round = _get_current_round()
     from accounts.governance_notices import dispatch_governance_notices_for_round

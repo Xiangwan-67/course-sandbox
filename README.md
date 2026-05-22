@@ -3,7 +3,11 @@
 多角色教学沙盘：写手发文 → 推送 → 用户互动 → 平台治理 → 轮次结算 → 监管行动。  
 架构与业务细节见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)、[docs/ROUTES.md](docs/ROUTES.md)、[CLAUDE.md](CLAUDE.md)。
 
+**服务器裸机部署（MySQL + Gunicorn gthread、迁移坑、`.env` 等）：** 见 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)。
+
 **约定：** 本项目使用 [uv](https://github.com/astral-sh/uv) 管理依赖；下文所有 Python 命令均以 `uv run` 为前缀，请勿直接使用裸 `python` / `pip`。
+
+**服务器（`~/course-sandbox` + venv + MySQL）：** 业务命令与下文相同，但前缀不同、Web 用 **systemd/Gunicorn** 而非 `runserver`。完整对照与 systemd 运维见 [docs/DEPLOYMENT.md §11](docs/DEPLOYMENT.md#11-服务器运维命令与-readme-对照)。
 
 ---
 
@@ -98,6 +102,20 @@ uv run python reset_test_data.py
 | 目的 | 灌入/更新账号与初始关注 | 清业务、保留账号 |
 | 账号表 | 写入/更新 | 保留 |
 | 文章/轮次/治理 | 不动 | 清空 |
+
+### 2.4 Django Admin 超户（`/admin/`，与 Excel 无关）
+
+沙盘首页 `/` 的写手/用户/平台/监管账号**只**来自 `load_accounts`；Django **Admin** 与运营台 `/admin/sandbox-ops/` 需单独建 **超级用户**：
+
+```powershell
+# 首次创建（交互输入用户名、密码）
+uv run python sandbox_site/manage.py createsuperuser
+
+# 修改已有超户密码
+uv run python sandbox_site/manage.py changepassword <用户名>
+```
+
+**服务器**上同样命令，前缀见 [docs/DEPLOYMENT.md §5.1](docs/DEPLOYMENT.md#51-django-admin-超户初始化与改密)（`venv` + `source .env`）。
 
 ---
 
@@ -249,6 +267,8 @@ uv run python -m pytest test/mega_sim/test_mega_simulation.py -c test/pytest.ini
 | 文档 | 内容 |
 |------|------|
 | [README.md](README.md) | 本文：命令与数据初始化 |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | **服务器部署**（全过程、坑、systemd）+ [§11 命令对照](docs/DEPLOYMENT.md#11-服务器运维命令与-readme-对照) |
+| `/admin/sandbox-monitor/` | **模拟看板**（写手完稿、用户分布、治理状态；需 Admin 超户） |
 | [CLAUDE.md](CLAUDE.md) | AI/协作规范、读档顺序 |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 架构、功能树、模型 |
 | [docs/ROUTES.md](docs/ROUTES.md) | 路由与 API |
@@ -259,12 +279,13 @@ uv run python -m pytest test/mega_sim/test_mega_simulation.py -c test/pytest.ini
 
 ## 10. 快速对照：我该跑哪条？
 
-| 我想… | 命令 |
-|--------|------|
-| 第一次搭环境 | `uv sync` → `migrate` → `load_accounts --clear` → `runserver` |
-| 换一批学生账号 | 更新 `账号管理.xlsx` → `load_accounts --clear`（或按需加 `--clear-platform` 等） |
-| 比赛/实验结束，保留账号重来一局 | `reset_test_data.py` → 可选再 `load_accounts` 恢复关注 |
-| 手工改过关注表，数字不对 | `sync_fans_count` |
-| 不打开网页，推进到下一轮 | `end_round` |
-| 跑自动化测试 | `uv run python test/run.py` |
-| 生产容器更新表结构 | `docker-compose exec web python sandbox_site/manage.py migrate` |
+| 我想… | 本地（README） | 服务器（[DEPLOYMENT §11](docs/DEPLOYMENT.md#11-服务器运维命令与-readme-对照)） |
+|--------|----------------|-------------------------------------------------------------------------------------|
+| 第一次搭环境 | `uv sync` → `migrate` → `load_accounts --clear` → `runserver` | `pip install` → `migrate` → `load_accounts --clear` → `systemctl start course-sandbox` |
+| 换一批学生账号 | 更新 Excel → `load_accounts --clear` | 同上（先 `source .env`） |
+| 比赛结束，保留账号重来一局 | `reset_test_data.py` → 可选 `load_accounts` | 同上 |
+| 手工改过关注表，数字不对 | `sync_fans_count` | 同上 |
+| 不打开网页，推进到下一轮 | `end_round` | 同上 |
+| 初始化 / 改 Django Admin 密码 | `createsuperuser` / `changepassword` | [DEPLOYMENT §5.1](docs/DEPLOYMENT.md#51-django-admin-超户初始化与改密) |
+| 跑自动化测试 | `uv run python test/run.py` | 建议在开发机跑；服务器见 DEPLOYMENT |
+| 生产容器更新表结构 | `docker-compose exec web ... migrate` | 裸机：`migrate` + `systemctl restart` |

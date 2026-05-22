@@ -18,9 +18,29 @@ from django.contrib import admin
 from django.urls import path, include
 
 from accounts.admin_operations import sandbox_operations_dashboard
+from accounts.admin_monitor import (
+    sandbox_monitor_api_governance,
+    sandbox_monitor_api_writers,
+    sandbox_monitor_dashboard,
+)
 
 urlpatterns = [
     path('admin/sandbox-ops/', admin.site.admin_view(sandbox_operations_dashboard), name='admin_sandbox_ops'),
+    path(
+        'admin/sandbox-monitor/',
+        admin.site.admin_view(sandbox_monitor_dashboard),
+        name='admin_sandbox_monitor',
+    ),
+    path(
+        'admin/sandbox-monitor/api/writers/',
+        admin.site.admin_view(sandbox_monitor_api_writers),
+        name='admin_sandbox_monitor_api_writers',
+    ),
+    path(
+        'admin/sandbox-monitor/api/governance/',
+        admin.site.admin_view(sandbox_monitor_api_governance),
+        name='admin_sandbox_monitor_api_governance',
+    ),
     path('admin/', admin.site.urls),
     path('', include('accounts.urls')),
 ]

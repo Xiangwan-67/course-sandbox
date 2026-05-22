@@ -20,6 +20,10 @@ from .models import (
     UserReportConfig, ArticleReport,
     RevenuePenaltyConfig, ArticleRevenueSettlement,
     SimulationRound,
+    RoundSnapshotBatch,
+    RoundSnapshotPlatform,
+    RoundSnapshotWriter,
+    RoundSnapshotWriterFan,
 )
 
 
@@ -503,3 +507,35 @@ class ArticleRevenueSettlementAdmin(admin.ModelAdmin):
         '原始收益', 'penalty_applied', 'penalty_coefficient', '最终收益', '结算时间',
     ]
     list_filter = ['platform_id', '轮次', 'penalty_applied']
+
+
+@admin.register(RoundSnapshotBatch)
+class RoundSnapshotBatchAdmin(admin.ModelAdmin):
+    list_display = ['id', 'round_num', 'captured_at', 'trigger']
+    readonly_fields = ['round_num', 'captured_at', 'trigger']
+
+
+@admin.register(RoundSnapshotPlatform)
+class RoundSnapshotPlatformAdmin(admin.ModelAdmin):
+    list_display = [
+        'id', 'round_num', 'platform_id', 'user_count',
+        'clickbait_count_article_field', 'clickbait_count_by_rule',
+        'cycle_index', 'cycle_profit_total',
+    ]
+    list_filter = ['round_num', 'platform_id']
+
+
+@admin.register(RoundSnapshotWriter)
+class RoundSnapshotWriterAdmin(admin.ModelAdmin):
+    list_display = [
+        'id', 'round_num', 'writer_account', 'platform_id', 'fan_count',
+        'round_revenue_total', 'revenue_penalty_deduction',
+        'traffic_penalty_article_count', 'health_score',
+    ]
+    list_filter = ['round_num', 'platform_id']
+
+
+@admin.register(RoundSnapshotWriterFan)
+class RoundSnapshotWriterFanAdmin(admin.ModelAdmin):
+    list_display = ['id', 'round_num', 'writer_account', 'user_account', 'user_platform_id']
+    list_filter = ['round_num', 'writer_account']
