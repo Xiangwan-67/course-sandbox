@@ -1485,8 +1485,8 @@ def platform_governance_publish(request):
         content = {'举报触发阈值': str(cfg.举报触发阈值), '审核方式': cfg.审核方式}
     elif measure_type == 'revenue_penalty':
         cfg = RevenuePenaltyConfig.objects.filter(platform_id=platform_id).order_by('-id').first()
-        if not cfg or cfg.status not in ('pending', 'active'):
-            return JsonResponse({'error': '请先提交收益惩罚配置，等待管理员审核后再提交发布。'}, status=400)
+        if not cfg or cfg.status != 'active':
+            return JsonResponse({'error': '请等待管理员在后台配置并审核通过收益惩罚参数后再提交发布。'}, status=400)
         config_id = int(cfg.pk)
         content = {'惩罚系数beta': str(cfg.惩罚系数beta)}
     rec = PlatformGovernanceMeasure.objects.create(
@@ -1710,7 +1710,7 @@ def platform_revenue_penalty(request):
     platform_user = PlatformAccount.objects.filter(账号=account).first()
     platform_id = getattr(platform_user, '所属平台', 0) if platform_user else 0
     current_round = _get_current_round()
-    cfg = RevenuePenaltyConfig.objects.filter(platform_id=platform_id).order_by('-id').first()
+    cfg = RevenuePenaltyConfig.objects.filter(platform_id=platform_id, status='active').order_by('-id').first()
     measure = _get_effective_governance_measure(platform_id, 'revenue_penalty', current_round)
     latest_measure = (
         PlatformGovernanceMeasure.objects
@@ -1733,30 +1733,8 @@ def platform_revenue_penalty(request):
 
 @require_http_methods(['POST'])
 def platform_revenue_penalty_save(request):
-    """提交收益惩罚配置参数（β 值）到管理员审核。"""
-    account = request.session.get('account', '')
-    if not account or request.session.get('role') != 'platform':
-        return JsonResponse({'error': '未登录或非平台角色'}, status=403)
-    platform_user = PlatformAccount.objects.filter(账号=account).first()
-    platform_id = getattr(platform_user, '所属平台', 0) if platform_user else 0
-    if RevenuePenaltyConfig.objects.filter(platform_id=platform_id, status__in=['pending', 'active']).exists():
-        return JsonResponse({'error': '该配置已提交待审或已生效，不能再次修改。'}, status=400)
-    try:
-        beta = Decimal(request.POST.get('beta', '0.50'))
-    except Exception:
-        beta = Decimal('0.50')
-    beta = max(Decimal('0'), min(Decimal('1'), beta))
-    cfg = RevenuePenaltyConfig.objects.create(
-        platform_id=platform_id,
-        惩罚系数beta=beta,
-        status='pending',
-        提交人账号=account,
-    )
-    action_log(
-        f"平台 {platform_id} 提交收益惩罚配置待审 config_id={cfg.pk} "
-        f"beta={beta} 操作人={account}"
-    )
-    return JsonResponse({'ok': True, 'config_id': cfg.pk})
+    """平台侧不允许配置收益惩罚参数，请由管理员在后台维护。"""
+    return JsonResponse({'error': '平台侧不允许配置收益惩罚参数，请由管理员在后台维护 β 值。'}, status=410)
 
 
 @ensure_csrf_cookie
@@ -1985,7 +1963,7 @@ def _settle_article_revenue(platform_id: int, round_num: int):
     revenue_penalty_measure = _get_effective_governance_measure(platform_id, 'revenue_penalty', round_num)
     beta = Decimal('1.0')
     if revenue_penalty_measure:
-        rp_cfg = RevenuePenaltyConfig.objects.filter(platform_id=platform_id).order_by('-id').first()
+        rp_cfg = RevenuePenaltyConfig.objects.filter(platform_id=platform_id, status='active').order_by('-id').first()
         if rp_cfg:
             beta = rp_cfg.惩罚系数beta
 
