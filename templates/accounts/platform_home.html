@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{{ platform_name }} - 平台页</title>
+  {% include "accounts/_base_style.html" %}
   <style>
     .platform-top-row {
       display: flex;
@@ -95,8 +96,16 @@
   </style>
 </head>
 <body>
-  <h2>{{ platform_name }}（平台负责人：{{ name }}）</h2>
-  <p>当前轮次：{{ current_round }}</p>
+  <nav class="sb-navbar">
+    <span class="sb-nav-title">{{ platform_name }}</span>
+    <span class="sb-nav-links">
+      <a href="{% url 'accounts:platform_governance' %}">平台治理</a>
+      <a href="{% url 'accounts:platform_performance' %}">绩效规则</a>
+      <a href="{% url 'accounts:logout' %}">退出登录</a>
+    </span>
+  </nav>
+  <div class="sb-page">
+  <p class="text-muted">平台负责人：{{ name }} ｜ 当前轮次：{{ current_round }}</p>
 
   <div class="platform-top-row">
     <div class="platform-top-col">
@@ -104,18 +113,18 @@
         <div class="platform-panel-title">利润看板</div>
         <div class="platform-panel-sub">周期 = {{ profit_period }} 轮</div>
         {% if current_cycle %}
-          <div style="margin-top: 6px;">
+          <div>
             当前展示周期：第 {{ current_cycle.cycle_start_round }} 轮 ~ 第 {{ current_cycle.cycle_end_round }} 轮
           </div>
           {% if collecting_message %}
-            <div style="margin-top: 6px; color: #d48806;">{{ collecting_message }}</div>
+            <div class="text-warn">{{ collecting_message }}</div>
           {% endif %}
-          <div style="margin-top: 10px; padding: 10px; border: 1px solid #ddd; background: #fafafa;">
+          <div class="sb-infobox" style="margin-top: 10px;">
             <div style="font-size: 18px;"><strong>周期总利润：</strong>{{ cycle_profit_total }}</div>
-            <div style="margin-top: 4px;">
+            <div>
               <strong>较上一周期变化：</strong>
               {% if profit_delta_abs is not None %}
-                <span style="color: {% if profit_delta_abs >= 0 %}green{% else %}red{% endif %};">
+                <span class="{% if profit_delta_abs >= 0 %}text-green{% else %}text-error{% endif %}">
                   {{ profit_delta_abs }}
                   {% if profit_delta_pct is not None %}
                     （{% if profit_delta_pct >= 0 %}+{% endif %}{{ profit_delta_pct|floatformat:2 }}%）
@@ -129,7 +138,7 @@
 
           <div style="margin-top: 10px;">
             <strong>因子明细贡献</strong>
-            <table border="1" cellspacing="0" cellpadding="6" style="margin-top: 6px; border-collapse: collapse; width: 100%;">
+            <table style="margin-top: 6px;">
               <thead>
                 <tr>
                   <th>因子</th>
@@ -155,7 +164,7 @@
 
           <div style="margin-top: 12px;">
             <strong>历史周期利润表</strong>
-            <table border="1" cellspacing="0" cellpadding="6" style="margin-top: 6px; border-collapse: collapse; width: 100%;">
+            <table style="margin-top: 6px;">
               <thead>
                 <tr>
                   <th>周期编号</th>
@@ -172,7 +181,7 @@
                     <td>{{ h.profit_total }}</td>
                     <td>
                       {% if h.delta_abs is not None %}
-                        <span style="color: {% if h.delta_abs >= 0 %}green{% else %}red{% endif %};">
+                        <span class="{% if h.delta_abs >= 0 %}text-green{% else %}text-error{% endif %}">
                           {{ h.delta_abs }}
                           {% if h.delta_pct is not None %}
                             （{% if h.delta_pct >= 0 %}+{% endif %}{{ h.delta_pct|floatformat:2 }}%）
@@ -190,12 +199,12 @@
             </table>
           </div>
 
-          <div style="margin-top: 12px; padding: 10px; border: 1px dashed #bbb; background: #fcfcfc;">
+          <div class="sb-summary">
             <strong>财务分析（预留）</strong>
             <div style="margin-top: 6px;">{{ financial_analysis }}</div>
           </div>
         {% else %}
-          <div style="margin-top: 4px;">本轮尚未形成完整周期，利润看板暂不展示（需要到达周期末轮次）。</div>
+          <div class="text-muted" style="margin-top: 4px;">本轮尚未形成完整周期，利润看板暂不展示（需要到达周期末轮次）。</div>
         {% endif %}
       </div>
     </div>
@@ -226,7 +235,7 @@
           {% endif %}
         </div>
         {% if platform_monitoring_box.has_pending %}
-          <p style="font-size:12px;color:#666;margin:8px 0 0;text-align:center;">有待审核的巡查申请</p>
+          <p class="text-muted" style="text-align:center; margin: 8px 0 0;">有待审核的巡查申请</p>
         {% endif %}
         <div class="monitor-action">
           <a href="{% url 'accounts:platform_self_patrol' %}">启动巡查</a>
@@ -235,7 +244,7 @@
     </div>
   </div>
 
-  <div style="margin-top: 16px; padding: 12px; border: 1px solid #ddd;">
+  <div class="sb-section">
     <strong>治理状态总览</strong>
     <div style="margin-top: 6px;">
       <a href="{% url 'accounts:platform_governance' %}">进入平台治理总览</a>
@@ -247,31 +256,31 @@
       <strong>当前已启用功能包</strong>
       {% if governance_status and governance_status|length > 0 %}
         {% for g in governance_status %}
-          <div style="padding: 8px; border: 1px solid #eee; margin-top: 8px; background:#fafafa;">
+          <div class="sb-infobox">
             <div><strong>{{ g.icon }} {{ g.name }}</strong>（生效轮次：第 {{ g.effective_round }} 轮）</div>
-            <div style="margin-top: 4px; color:#555;">参数摘要：{{ g.summary }}</div>
+            <div class="text-muted" style="margin-top: 4px;">参数摘要：{{ g.summary }}</div>
             <div style="margin-top: 4px;">
               <a href="{% url g.config_url %}">进入配置页</a>
             </div>
           </div>
         {% endfor %}
       {% else %}
-        <div style="margin-top: 6px;">当前暂无已启用功能包。</div>
+        <div class="text-muted" style="margin-top: 6px;">当前暂无已启用功能包。</div>
       {% endif %}
     </div>
 
-    <div style="margin-top: 12px; padding: 10px; border: 1px dashed #bbb;">
+    <div class="sb-summary">
       <strong>上轮关键结果摘要（第 {{ prev_round_summary.round }} 轮）</strong>
       <div style="margin-top: 6px;">
         发文总数：{{ prev_round_summary.article_count }} |
         标题党文章数：{{ prev_round_summary.clickbait_count }} |
         用户举报总量：{{ prev_round_summary.report_count }}
       </div>
-      <div style="margin-top: 4px;">
+      <div>
         受流量惩罚文章数：{{ prev_round_summary.traffic_penalized_articles }} |
         受健康分处罚写手数：{{ prev_round_summary.violated_writer_count }}
       </div>
-      <div style="margin-top: 4px;">
+      <div>
         整体互动：点击={{ prev_round_summary.total_click }}，
         阅读完成={{ prev_round_summary.total_finish }}，
         收藏={{ prev_round_summary.total_collect }}
@@ -279,7 +288,7 @@
     </div>
   </div>
 
-  <div style="margin-top: 16px; padding: 12px; border: 1px solid #ddd;">
+  <div class="sb-section">
     <strong>平台绩效</strong>
     <div style="margin-top: 6px;">
       <a href="{% url 'accounts:platform_performance' %}">进入平台绩效</a>
@@ -287,7 +296,7 @@
     <div style="margin-top: 10px;">
       <strong>当前生效方案：</strong>
       {% if current_performance_scheme %}
-        <div style="margin-top: 6px; color: #333;">
+        <div style="margin-top: 4px;">
           生效轮次：第 <strong>{{ current_performance_scheme.生效轮次 }}</strong> 轮起；
           绩效权重（须满足 w1+w2+w3=1）：
           w1 点击 = {% if current_performance_scheme.w1_click is not None %}{{ current_performance_scheme.w1_click }}{% else %}—{% endif %}，
@@ -295,20 +304,18 @@
           w3 收藏 = {% if current_performance_scheme.w3_collect is not None %}{{ current_performance_scheme.w3_collect }}{% else %}—{% endif %}
         </div>
       {% else %}
-        <span>暂无</span>
+        <span class="text-muted">暂无</span>
       {% endif %}
     </div>
   </div>
 
-  <div style="margin-top: 16px; padding: 12px; border: 1px solid #ddd; background: #fcfcfc;">
+  <div class="sb-section">
     <strong>治理结果入口</strong>
     <div style="margin-top: 6px;">
       <a href="{% url 'accounts:platform_round_result' %}">查看本轮/历史治理结果</a>
     </div>
   </div>
+  </div>
 
-  <p style="margin-top: 20px;">
-    <a href="{% url 'accounts:logout' %}">退出登录</a>
-  </p>
 </body>
 </html>

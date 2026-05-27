@@ -61,14 +61,24 @@
 
 ---
 
-### feat: 监管主页展示罚款金额与到账情况（方案 A）
+### style: 前端界面统一美化
 
-**需求：** 监管角色反馈"罚款没有罚款金额，和到账情况"。监管机构提交罚款申请后，无法看到申请状态、对应监管成本数值以及生效轮次。
+**目标：** 消除散乱的内联样式，建立一套统一的视觉设计语言，不影响任何业务逻辑。
 
-**修改文件及位置：**
+**新增文件：**
 
-- `accounts/views.py` — `_regulator_monitoring_boxes`：在每个平台框的数据字典中新增 `fine_history` 字段，查询该平台全部 `RegulatorFineApplication` 记录，并关联查询对应的 `RegulatorFineRecord`，组装为包含申请轮次、档次、监管成本数值、申请状态、生效轮次的列表
-- `templates/accounts/regulator_home.html`：在每个监测框的"罚款"按钮下方，当 `fine_history` 非空时渲染罚款记录表格，列：申请轮次、档次、监管成本、状态/生效轮次（待审核/已通过+生效轮次/已驳回）
+- `templates/accounts/_base_style.html`：共用 CSS 片段，通过 `{% include %}` 在各模板 `<head>` 末尾引入，定义以下样式体系：
+  - 布局：`.sb-page`（居中容器）、`.sb-navbar`（顶部固定导航栏）
+  - 区块：`.sb-section`（通用内容区块）、`.sb-card`、`.sb-infobox`/`.sb-infobox-ok`/`.sb-infobox-warn`（参数展示子块）、`.sb-summary`（虚线摘要区）
+  - 组件：`.badge-green/orange/gray/red/blue`（状态徽章）、`btn-primary`/`btn-danger`（按钮语义化）
+  - 工具类：`.text-error`/`.text-warn`/`.text-muted`/`.text-green`
 
-**设计决策：** 不新增字段、不新增页面，在现有监测框内内嵌小表格（方案 A），改动范围最小。"监管成本"即管理员审批时从 `AdminBaseConfig` 快照的数值（如 -4），是罚款参与利润计算的实际量。
+**修改文件（11 个模板，纯样式重构，无逻辑变更）：**
+
+- `login.html`：改为居中卡片登录布局
+- `platform_home.html`、`platform_governance.html`、`platform_performance.html`：引入 navbar + sb-page 容器；老式表格属性（`border="1"` / `cellspacing` / `cellpadding`）移除；区块容器改为 `.sb-section`；内联颜色改为工具类
+- `platform_clickbait_detection.html`、`platform_traffic_penalty.html`、`platform_revenue_penalty.html`、`platform_report.html`：统一结构（navbar + sb-page + sb-section）；`style="color:#888"` 等内联色改为 `.text-muted`；删除底部冗余 `<p>` 文字导航
+- `platform_round_result.html`：区块容器改为 `.sb-section`；新增 `.stat-grid`/`.stat-card` 统计卡片网格
+- `regulator_home.html`：罚款记录小表格的 20+ 处 `th`/`td` 内联样式全部移除；状态色改为工具类
+- `regulator_special_action.html`：区块容器改为 `.sb-section`/`.sb-infobox`；删除底部冗余导航
 

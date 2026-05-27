@@ -4,23 +4,43 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>登录 - 标题党沙盘</title>
+    {% include "accounts/_base_style.html" %}
     <style>
-        body { font-family: "Microsoft YaHei", sans-serif; margin: 2rem; }
-        .form { max-width: 320px; }
-        .form label { display: block; margin-top: 0.8rem; }
-        .form input { width: 100%; padding: 0.4rem; box-sizing: border-box; }
-        .form button { margin-top: 1rem; padding: 0.5rem 1rem; }
-        .error { color: red; margin-top: 0.5rem; }
+        body { display: flex; align-items: center; justify-content: center; min-height: 100vh; background: #f4f6f8; }
+        .login-card {
+            background: #fff;
+            border: 1px solid #e0e3e8;
+            border-radius: 10px;
+            padding: 36px 40px 32px;
+            width: 340px;
+            box-shadow: 0 4px 18px rgba(0,0,0,.10);
+        }
+        .login-card h1 { margin: 0 0 24px; font-size: 20px; text-align: center; color: #1a1a2e; }
+        .login-card label { display: block; margin-bottom: 14px; color: #444; font-size: 13px; }
+        .login-card label span { display: block; margin-bottom: 4px; font-weight: 500; }
+        .login-card input[type="text"],
+        .login-card input[type="password"] { width: 100%; }
+        .login-card button[type="submit"] {
+            width: 100%; margin-top: 20px;
+            padding: 9px 0; font-size: 14px;
+            background: #1a6bd4; color: #fff;
+            border: none; border-radius: 5px;
+            cursor: pointer; transition: background .15s;
+        }
+        .login-card button[type="submit"]:hover { background: #1558b0; }
+        .error { color: #c00; margin-top: 12px; font-size: 13px; text-align: center; }
     </style>
 </head>
 <body>
-    <h1>登录</h1>
-    <form class="form" method="post" action="{% url 'accounts:login' %}">
-        {% csrf_token %}
-        <label>账号：<input type="text" name="account" required></label>
-        <label>密码：<input type="password" name="password" required></label>
-        <button type="submit">登录</button>
-        {% if error %}<p class="error">{{ error }}</p>{% endif %}
-    </form>
+    <div class="login-card">
+        <h1>标题党沙盘</h1>
+        <form method="post" action="{% url 'accounts:login' %}">
+            {% csrf_token %}
+            <label><span>账号</span><input type="text" name="account" required autofocus></label>
+            <label><span>密码</span><input type="password" name="password" required></label>
+            <button type="submit">登录</button>
+            {% if error %}<p class="error">{{ error }}</p>{% endif %}
+        </form>
+    </div>
 </body>
 </html>

@@ -4,17 +4,20 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>监管机构 - 发起专项整治</title>
+  {% include "accounts/_base_style.html" %}
 </head>
 <body>
-  <p>
-    <a href="{% url 'accounts:regulator_home' %}">返回监管主页</a>
-    |
-    <a href="{% url 'accounts:logout' %}">退出登录</a>
-  </p>
-  <h2>监管机构（{{ name }}）- 发起专项整治</h2>
-  <p>当前轮次：{{ current_round }}</p>
+  <nav class="sb-navbar">
+    <span class="sb-nav-title">监管机构 — 发起专项整治</span>
+    <span class="sb-nav-links">
+      <a href="{% url 'accounts:regulator_home' %}">监管主页</a>
+      <a href="{% url 'accounts:logout' %}">退出登录</a>
+    </span>
+  </nav>
+  <div class="sb-page">
+  <p class="text-muted">监管机构：{{ name }} ｜ 当前轮次：{{ current_round }}</p>
 
-  <div style="margin-top: 16px; padding: 12px; border: 1px solid #ddd;">
+  <div class="sb-section">
     <strong>发起专项整治</strong>
     <div style="margin-top: 10px;">
       <div><strong>整治平台</strong></div>
@@ -23,7 +26,7 @@
         全选（仅选中可选平台）
       </label>
       {% for p in platform_items %}
-        <label style="display:block; margin-top: 6px; color: {% if p.disabled %}#999{% else %}#000{% endif %};">
+        <label style="display:block; margin-top: 6px;" {% if p.disabled %}class="text-muted"{% endif %}>
           <input
             type="checkbox"
             class="platform-option"
@@ -66,15 +69,15 @@
     </div>
 
     <div style="margin-top: 14px;">
-      <button id="submit-action-btn">确认发起（提交管理员审核）</button>
+      <button id="submit-action-btn" class="btn-primary">确认发起（提交管理员审核）</button>
     </div>
   </div>
 
-  <div style="margin-top: 16px; padding: 12px; border: 1px solid #ddd;">
+  <div class="sb-section">
     <strong>最近专项整治申请</strong>
     {% if latest_applications and latest_applications|length > 0 %}
       {% for app in latest_applications %}
-        <div style="padding: 8px; border: 1px solid #eee; margin-top: 8px;">
+        <div class="sb-infobox">
           <div>
             <strong>行动编号：</strong>{{ app.行动编号 }}
             | <strong>状态：</strong>{{ app.get_申请状态_display }}
@@ -91,7 +94,7 @@
         </div>
       {% endfor %}
     {% else %}
-      <div style="margin-top: 8px;">暂无申请记录。</div>
+      <div class="text-muted" style="margin-top: 8px;">暂无申请记录。</div>
     {% endif %}
   </div>
 
@@ -190,5 +193,6 @@
       window.location.reload();
     });
   </script>
+  </div>
 </body>
 </html>

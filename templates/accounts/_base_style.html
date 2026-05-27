@@ -1,0 +1,231 @@
+{% comment %}共用基础样式片段，在各模板 <head> 末尾 {% include "accounts/_base_style.html" %} 引入{% endcomment %}
+<style>
+/* ── 全局 ── */
+*, *::before, *::after { box-sizing: border-box; }
+body {
+  font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #222;
+  background: #f4f6f8;
+  margin: 0;
+  padding: 0;
+}
+
+/* ── 页面容器 ── */
+.sb-page {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 20px 20px 40px;
+}
+
+/* ── 顶部导航栏 ── */
+.sb-navbar {
+  background: #1a1a2e;
+  color: #e0e0e0;
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 48px;
+  position: sticky;
+  top: 0;
+  z-index: 200;
+  box-shadow: 0 2px 6px rgba(0,0,0,.25);
+}
+.sb-navbar .sb-nav-title {
+  font-weight: bold;
+  font-size: 15px;
+  color: #fff;
+  letter-spacing: .5px;
+}
+.sb-navbar .sb-nav-links {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+.sb-navbar a {
+  color: #c0d0e8;
+  text-decoration: none;
+  font-size: 13px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: background .15s, color .15s;
+}
+.sb-navbar a:hover { background: rgba(255,255,255,.12); color: #fff; }
+.sb-navbar .sb-nav-badge {
+  position: relative;
+  display: inline-block;
+}
+.sb-navbar .sb-nav-badge .dot {
+  position: absolute;
+  top: 0; right: 0;
+  width: 8px; height: 8px;
+  background: #e53935;
+  border-radius: 50%;
+  border: 1px solid #1a1a2e;
+}
+
+/* ── 内容卡片 ── */
+.sb-card {
+  background: #fff;
+  border: 1px solid #e0e3e8;
+  border-radius: 8px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.06);
+}
+.sb-card h2, .sb-card h3 {
+  margin-top: 0;
+}
+
+/* ── 表格 ── */
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+th, td {
+  border: 1px solid #e0e3e8;
+  padding: 7px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+th {
+  background: #f0f2f5;
+  font-weight: 600;
+  color: #444;
+}
+tbody tr:hover { background: #f8f9fb; }
+
+/* ── 按钮 ── */
+button, input[type="submit"] {
+  display: inline-block;
+  padding: 6px 16px;
+  font-size: 13px;
+  font-family: inherit;
+  border-radius: 5px;
+  border: 1px solid #c0c8d4;
+  background: #fff;
+  color: #333;
+  cursor: pointer;
+  transition: background .15s, border-color .15s, box-shadow .15s;
+  line-height: 1.5;
+}
+button:hover, input[type="submit"]:hover {
+  background: #f0f4fa;
+  border-color: #a0aabb;
+  box-shadow: 0 1px 3px rgba(0,0,0,.08);
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+/* 主操作按钮 */
+button.btn-primary {
+  background: #1a6bd4;
+  border-color: #1558b0;
+  color: #fff;
+}
+button.btn-primary:hover {
+  background: #1558b0;
+  border-color: #1046a0;
+}
+/* 危险按钮 */
+button.btn-danger {
+  background: #fff;
+  border-color: #e04040;
+  color: #c00;
+}
+button.btn-danger:hover {
+  background: #fff5f5;
+  border-color: #c00;
+}
+
+/* ── 表单输入 ── */
+input[type="text"], input[type="password"], input[type="number"],
+select, textarea {
+  font-family: inherit;
+  font-size: 13px;
+  padding: 5px 9px;
+  border: 1px solid #c8d0dc;
+  border-radius: 4px;
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+  background: #fff;
+}
+input[type="text"]:focus, input[type="password"]:focus,
+input[type="number"]:focus, select:focus, textarea:focus {
+  border-color: #1a6bd4;
+  box-shadow: 0 0 0 2px rgba(26,107,212,.15);
+}
+
+/* ── 链接 ── */
+a { color: #1a6bd4; text-decoration: none; }
+a:hover { text-decoration: underline; color: #1046a0; }
+
+/* ── 状态 Badge ── */
+.badge {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.6;
+}
+.badge-green  { background: #e6f9ee; color: #1a7a3e; border: 1px solid #b7e9c8; }
+.badge-orange { background: #fff7e6; color: #b05a00; border: 1px solid #ffd591; }
+.badge-gray   { background: #f2f3f5; color: #666;    border: 1px solid #d9dde4; }
+.badge-red    { background: #fff1f0; color: #b00;    border: 1px solid #ffa39e; }
+.badge-blue   { background: #e8f0fe; color: #1a4fa0; border: 1px solid #aac4f5; }
+
+/* ── 区块容器 ── */
+.sb-section {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: #fff;
+}
+.sb-section + .sb-section { margin-top: 12px; }
+/* 信息展示子块（只读参数框等） */
+.sb-infobox {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: #f9f9f9;
+  border: 1px solid #eee;
+  border-radius: 3px;
+}
+/* 警告/待审核区块 */
+.sb-infobox-warn {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: #fffff0;
+  border: 1px solid #eea;
+  border-radius: 3px;
+}
+/* 成功/已生效区块 */
+.sb-infobox-ok {
+  padding: 8px 10px;
+  background: #f0fff0;
+  border: 1px solid #cfc;
+  border-radius: 3px;
+}
+/* 摘要/次要区块（虚线边框） */
+.sb-summary {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px dashed #bbb;
+  border-radius: 4px;
+  background: #fcfcfc;
+}
+
+/* ── 分隔线 ── */
+hr { border: none; border-top: 1px solid #e5e8ed; margin: 16px 0; }
+
+/* ── 错误/提示文字 ── */
+.text-error  { color: #c00; }
+.text-warn   { color: #b05a00; }
+.text-muted  { color: #888; }
+.text-green  { color: #1a7a3e; }
+</style>

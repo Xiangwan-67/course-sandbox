@@ -4,20 +4,28 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{{ platform_name }} - 平台治理</title>
+  {% include "accounts/_base_style.html" %}
 </head>
 <body>
-  <h2>{{ platform_name }} - 平台治理（平台负责人：{{ name }}）</h2>
-  <p>当前轮次：{{ current_round }}</p>
+  <nav class="sb-navbar">
+    <span class="sb-nav-title">{{ platform_name }} — 平台治理</span>
+    <span class="sb-nav-links">
+      <a href="{% url 'accounts:platform_home' %}">平台首页</a>
+      <a href="{% url 'accounts:logout' %}">退出登录</a>
+    </span>
+  </nav>
+  <div class="sb-page">
+  <p class="text-muted">当前轮次：{{ current_round }} ｜ 平台负责人：{{ name }}</p>
 
-  <div style="margin-top: 16px; padding: 12px; border: 1px solid #ddd;">
+  <div class="sb-section">
     <strong>可选措施</strong>
     {% for m in measures %}
-      <div style="padding: 10px; border: 1px solid #eee; margin-top: 10px;">
+      <div class="sb-infobox">
         <div><strong>{{ m.name }}</strong></div>
         <div style="margin-top: 4px;">{{ m.desc }}</div>
         {% if m.type == 'account_health_rule' %}
           {% if m.health_config %}
-            <div style="margin-top: 8px; padding: 8px; border: 1px dashed #ddd; background: #fafafa;">
+            <div class="sb-infobox" style="margin-top: 8px;">
               <div><strong>当前健康分配置（只读）</strong></div>
               <div style="margin-top: 4px;">初始健康分：{{ m.health_config.初始健康分 }}</div>
               <div>每次违规扣减分值：{{ m.health_config.每次违规扣减分值 }}</div>
@@ -26,7 +34,7 @@
               <div>每次恢复分值：{{ m.health_config.每次恢复分值 }}</div>
               {% if m.health_levels %}
                 <div style="margin-top: 6px;"><strong>档位配置</strong></div>
-                <table border="1" cellspacing="0" cellpadding="4" style="margin-top: 4px; border-collapse: collapse;">
+                <table style="margin-top: 4px;">
                   <thead>
                     <tr>
                       <th>标签</th>
@@ -47,16 +55,16 @@
               {% endif %}
             </div>
           {% else %}
-            <div style="margin-top: 8px; color: #999;">尚未配置健康分参数，发布时将自动创建默认配置。</div>
+            <div class="text-muted" style="margin-top: 8px;">尚未配置健康分参数，发布时将自动创建默认配置。</div>
           {% endif %}
         {% endif %}
         <div style="margin-top: 8px;">
           {% if m.published %}
-            <span style="color: green; margin-right: 8px;">✔ 已发布</span>
-            <button onclick="toggleMeasure('{{ m.type }}', true)">取消该措施</button>
+            <span class="badge badge-green">✔ 已发布</span>
+            <button onclick="toggleMeasure('{{ m.type }}', true)" class="btn-danger" style="margin-left: 8px;">取消该措施</button>
           {% else %}
-            <span style="color: gray; margin-right: 8px;">未发布</span>
-            <button onclick="toggleMeasure('{{ m.type }}', false)">提交发布申请（待管理员审核）</button>
+            <span class="badge badge-gray">未发布</span>
+            <button onclick="toggleMeasure('{{ m.type }}', false)" class="btn-primary" style="margin-left: 8px;">提交发布申请（待管理员审核）</button>
           {% endif %}
           {% if m.config_url %}
             <a href="{% url m.config_url %}" style="margin-left: 12px;">配置参数</a>
@@ -66,11 +74,7 @@
     {% endfor %}
   </div>
 
-  <p style="margin-top: 20px;">
-    <a href="{% url 'accounts:platform_home' %}">返回平台首页</a>
-    |
-    <a href="{% url 'accounts:logout' %}">退出登录</a>
-  </p>
+  </div>
 
   <script>
     function getCookie(name) {

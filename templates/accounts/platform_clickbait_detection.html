@@ -4,62 +4,65 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{{ platform_name }} - 标题党检测</title>
+  {% include "accounts/_base_style.html" %}
 </head>
 <body>
-  <h2>{{ platform_name }} - 标题党检测（开关）</h2>
-  <p>平台负责人：{{ name }} ｜ 当前轮次：{{ current_round }}</p>
+  <nav class="sb-navbar">
+    <span class="sb-nav-title">{{ platform_name }} — 标题党检测</span>
+    <span class="sb-nav-links">
+      <a href="{% url 'accounts:platform_governance' %}">治理总览</a>
+      <a href="{% url 'accounts:platform_home' %}">平台首页</a>
+      <a href="{% url 'accounts:logout' %}">退出登录</a>
+    </span>
+  </nav>
+  <div class="sb-page">
+  <p class="text-muted">平台负责人：{{ name }} ｜ 当前轮次：{{ current_round }}</p>
 
-  <div style="margin-top: 16px; padding: 12px; border: 1px solid #ddd;">
+  <div class="sb-section">
     <h3>当前状态</h3>
     <p>
       发布状态：
       {% if is_published %}
-        <span style="color: green; font-weight: bold;">已发布</span>
+        <span class="badge badge-green">已发布</span>
       {% else %}
-        <span style="color: gray;">未发布</span>
+        <span class="badge badge-gray">未发布</span>
       {% endif %}
       ｜ 生效状态：
       {% if is_effective %}
-        <span style="color: green; font-weight: bold;">已生效</span>
+        <span class="badge badge-green">已生效</span>
       {% else %}
-        <span style="color: orange;">未生效</span>
+        <span class="badge badge-orange">未生效</span>
         {% if is_published %}（下一轮起生效）{% endif %}
       {% endif %}
     </p>
     {% if latest_measure and latest_measure.status == 'pending' %}
-      <p style="color:#d48806;">当前发布申请：待管理员审核（measure_id={{ latest_measure.pk }}）</p>
+      <p class="text-warn">当前发布申请：待管理员审核（measure_id={{ latest_measure.pk }}）</p>
     {% elif latest_measure and latest_measure.status == 'rejected' %}
-      <p style="color:#cf1322;">当前发布申请：已被管理员驳回（measure_id={{ latest_measure.pk }}）</p>
+      <p class="text-error">当前发布申请：已被管理员驳回（measure_id={{ latest_measure.pk }}）</p>
     {% endif %}
 
-    <div style="margin-top: 8px; padding: 8px; background: #f9f9f9; border: 1px solid #eee;">
+    <div class="sb-infobox">
       <p><strong>默认参数</strong>（仅管理员可在后台维护）</p>
       {% if config %}
         <div>当前生效配置 ID：{{ config.pk }}（创建时间：{{ config.创建时间 }}）</div>
       {% else %}
-        <div style="color: #cf1322;">管理员尚未配置默认参数，暂不可开启。</div>
+        <div class="text-error">管理员尚未配置默认参数，暂不可开启。</div>
       {% endif %}
     </div>
   </div>
 
-  <div style="margin-top: 20px; padding: 12px; border: 1px solid #ddd;">
+  <div class="sb-section">
     <h3>启用/关闭</h3>
     {% if is_published %}
-      <button onclick="cancelMeasure()">取消标题党检测</button>
-      <span style="color: #888; margin-left: 8px;">取消后下一轮起不再执行自动检测</span>
+      <button onclick="cancelMeasure()" class="btn-danger">取消标题党检测</button>
+      <span class="text-muted" style="margin-left: 8px;">取消后下一轮起不再执行自动检测</span>
     {% else %}
-      <button onclick="publishMeasure()" {% if not config %}disabled{% endif %}>提交发布申请（待管理员审核）</button>
-      <span style="color: #888; margin-left: 8px;">审核通过后下一轮起对写手文章进行自动检测</span>
+      <button onclick="publishMeasure()" {% if not config %}disabled{% endif %} class="btn-primary">提交发布申请（待管理员审核）</button>
+      <span class="text-muted" style="margin-left: 8px;">审核通过后下一轮起对写手文章进行自动检测</span>
     {% endif %}
   </div>
 
-  <p style="margin-top: 20px;">
-    <a href="{% url 'accounts:platform_governance' %}">返回治理总览</a>
-    |
-    <a href="{% url 'accounts:platform_home' %}">返回平台首页</a>
-    |
-    <a href="{% url 'accounts:logout' %}">退出登录</a>
-  </p>
+  </div>
 
   <script>
     function getCookie(name) {
