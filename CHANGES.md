@@ -43,3 +43,32 @@
 - `accounts/views.py:1488`：`platform_governance_publish` 中 revenue_penalty 分支前置检查从 `status IN ('pending','active')` 收紧为 `status == 'active'`，平台须等管理员审核通过后才能提交发布申请
 - `accounts/views.py:1966`：结算函数取 β 时加 `status='active'` 过滤，防止被驳回的配置参数仍被结算读取
 - `templates/accounts/platform_revenue_penalty.html`：删除 β 输入表单与 `saveConfig()` JS 函数，改为只读展示管理员配置的参数值，并更新无配置时的提示文字
+
+---
+
+### fix: 修复平台参数无法重新提交（方案一——允许覆盖 pending 配置）
+
+**问题：** 流量惩罚与用户举报的配置提交接口在 `status IN ('pending', 'active')` 时均拒绝新提交。平台提交参数后若管理员迟迟未审核，平台将无法修改参数，只能等待，体验差。
+
+**修改文件及位置：**
+
+- `accounts/views.py` — `platform_traffic_penalty_save`：将前置检查从"pending 或 active 均拒绝"收紧为"仅 active 时拒绝"；同时在创建新配置前将已有 pending 记录自动置为 `rejected`，允许平台随时以新参数覆盖待审核的旧配置
+- `accounts/views.py` — `platform_report_save`：同上，适用于 `UserReportConfig`
+- `templates/accounts/platform_traffic_penalty.html`：前端"配置已生效"禁用提示的条件从 `config.status == 'pending' or 'active'` 收紧为仅 `config.status == 'active'`，pending 状态下提交按钮仍可见
+- `templates/accounts/platform_report.html`：同上，适用于用户举报配置页
+
+**设计决策：** 仅 `active`（已生效）状态阻止重新提交，保证线上生效参数不被意外覆盖；`pending`（待审核）视为草稿，可随时被新提交替换。
+
+---
+
+### feat: 监管主页展示罚款金额与到账情况（方案 A）
+
+**需求：** 监管角色反馈"罚款没有罚款金额，和到账情况"。监管机构提交罚款申请后，无法看到申请状态、对应监管成本数值以及生效轮次。
+
+**修改文件及位置：**
+
+- `accounts/views.py` — `_regulator_monitoring_boxes`：在每个平台框的数据字典中新增 `fine_history` 字段，查询该平台全部 `RegulatorFineApplication` 记录，并关联查询对应的 `RegulatorFineRecord`，组装为包含申请轮次、档次、监管成本数值、申请状态、生效轮次的列表
+- `templates/accounts/regulator_home.html`：在每个监测框的"罚款"按钮下方，当 `fine_history` 非空时渲染罚款记录表格，列：申请轮次、档次、监管成本、状态/生效轮次（待审核/已通过+生效轮次/已驳回）
+
+**设计决策：** 不新增字段、不新增页面，在现有监测框内内嵌小表格（方案 A），改动范围最小。"监管成本"即管理员审批时从 `AdminBaseConfig` 快照的数值（如 -4），是罚款参与利润计算的实际量。
+

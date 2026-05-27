@@ -67,8 +67,8 @@
         </select>
         <span style="color: #888; margin-left: 8px;">自动审核：达阈值即确认；人工审核：需管理员在后台确认</span>
       </div>
-      {% if config and config.status == 'pending' or config and config.status == 'active' %}
-        <div style="color:#888;">配置已提交/生效，禁止修改。如需调整请联系管理员驳回后重新提交。</div>
+      {% if config and config.status == 'active' %}
+        <div style="color:#888;">配置已生效，如需调整请先取消发布后再重新提交。</div>
       {% else %}
         <button type="button" onclick="saveConfig()">提交配置（待管理员审核）</button>
       {% endif %}

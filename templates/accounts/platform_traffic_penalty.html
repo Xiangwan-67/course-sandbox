@@ -56,8 +56,8 @@
                value="{{ config.降权系数alpha|default:'0.50' }}" min="0" max="1" style="width: 100px;" />
         <span style="color: #888; margin-left: 8px;">标题党文章的流量乘以此系数（越小惩罚越重）</span>
       </div>
-      {% if config and config.status == 'pending' or config and config.status == 'active' %}
-        <div style="color:#888;">配置已提交/生效，禁止修改。如需调整请联系管理员驳回后重新提交。</div>
+      {% if config and config.status == 'active' %}
+        <div style="color:#888;">配置已生效，如需调整请先取消发布后再重新提交。</div>
       {% else %}
         <button type="button" onclick="saveConfig()">提交配置（待管理员审核）</button>
       {% endif %}

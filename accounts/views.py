@@ -692,6 +692,8 @@ def platform_round_result(request):
 
 def _regulator_monitoring_boxes(current_round: int, jurisdiction):
     """监管主页「平台监测系统」各平台框：取该平台最新一条已落库的 PlatformPatrolResult。"""
+    _fine_tier_label = dict(RegulatorFineApplication.FINE_TIER_CHOICES)
+    _fine_status_label = dict(RegulatorFineApplication.STATUS_CHOICES)
     boxes = []
     for item in _all_platform_choices():
         pid = item['id']
@@ -726,6 +728,24 @@ def _regulator_monitoring_boxes(current_round: int, jurisdiction):
             row['title_rate_display'] = f'{rate_pct:.2f}%'
             row['period_display'] = f'第{latest.起始轮次}–{latest.终止轮次}轮'
             row['rounds_since_update'] = rounds_ago
+        # 罚款申请历史：该平台全部申请，按申请时间倒序，供监管方查看金额与到账情况
+        fine_apps = list(
+            RegulatorFineApplication.objects.filter(平台编号=pid)
+            .order_by('-申请轮次', '-id')
+        )
+        fine_history = []
+        for app in fine_apps:
+            rec = RegulatorFineRecord.objects.filter(申请记录=app).first()
+            fine_history.append({
+                'id': app.pk,
+                'apply_round': app.申请轮次,
+                'tier_label': _fine_tier_label.get(app.罚款档次, app.罚款档次),
+                'status_label': _fine_status_label.get(app.申请状态, app.申请状态),
+                'status': app.申请状态,
+                'supervision_cost': rec.监管成本数值 if rec else None,
+                'exec_round': rec.执行轮次 if rec else None,
+            })
+        row['fine_history'] = fine_history
         boxes.append(row)
     return boxes
 
@@ -1619,8 +1639,10 @@ def platform_traffic_penalty_save(request):
         return JsonResponse({'error': '未登录或非平台角色'}, status=403)
     platform_user = PlatformAccount.objects.filter(账号=account).first()
     platform_id = getattr(platform_user, '所属平台', 0) if platform_user else 0
-    if TrafficPenaltyConfig.objects.filter(platform_id=platform_id, status__in=['pending', 'active']).exists():
-        return JsonResponse({'error': '该配置已提交待审或已生效，不能再次修改。'}, status=400)
+    if TrafficPenaltyConfig.objects.filter(platform_id=platform_id, status='active').exists():
+        return JsonResponse({'error': '流量惩罚配置已生效，如需调整请先取消发布后再重新提交。'}, status=400)
+    # 若存在待审核的旧配置，自动将其撤销，允许平台重新提交新参数
+    TrafficPenaltyConfig.objects.filter(platform_id=platform_id, status='pending').update(status='rejected')
     try:
         alpha = Decimal(request.POST.get('alpha', '0.50'))
     except Exception:
@@ -1677,8 +1699,10 @@ def platform_report_save(request):
         return JsonResponse({'error': '未登录或非平台角色'}, status=403)
     platform_user = PlatformAccount.objects.filter(账号=account).first()
     platform_id = getattr(platform_user, '所属平台', 0) if platform_user else 0
-    if UserReportConfig.objects.filter(platform_id=platform_id, status__in=['pending', 'active']).exists():
-        return JsonResponse({'error': '该配置已提交待审或已生效，不能再次修改。'}, status=400)
+    if UserReportConfig.objects.filter(platform_id=platform_id, status='active').exists():
+        return JsonResponse({'error': '用户举报配置已生效，如需调整请先取消发布后再重新提交。'}, status=400)
+    # 若存在待审核的旧配置，自动将其撤销，允许平台重新提交新参数
+    UserReportConfig.objects.filter(platform_id=platform_id, status='pending').update(status='rejected')
     try:
         threshold = Decimal(request.POST.get('threshold', '0.30'))
     except Exception:

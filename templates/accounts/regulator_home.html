@@ -160,6 +160,41 @@
               <button type="button" class="btn-fine js-open-fine" data-platform-id="{{ box.platform_id }}" data-platform-name="{{ box.platform_name }}">罚款</button>
             {% endif %}
           </div>
+          {% if box.fine_history %}
+          <div style="margin-top:10px;border-top:1px solid #e0e0e0;padding-top:8px;">
+            <div style="font-size:12px;color:#666;margin-bottom:4px;">罚款记录</div>
+            <table style="font-size:12px;width:100%;border-collapse:collapse;">
+              <thead>
+                <tr>
+                  <th style="border:1px solid #ddd;padding:3px 6px;background:#f5f5f5;">申请轮次</th>
+                  <th style="border:1px solid #ddd;padding:3px 6px;background:#f5f5f5;">档次</th>
+                  <th style="border:1px solid #ddd;padding:3px 6px;background:#f5f5f5;">监管成本</th>
+                  <th style="border:1px solid #ddd;padding:3px 6px;background:#f5f5f5;">状态 / 生效轮次</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for f in box.fine_history %}
+                <tr>
+                  <td style="border:1px solid #ddd;padding:3px 6px;">第 {{ f.apply_round }} 轮</td>
+                  <td style="border:1px solid #ddd;padding:3px 6px;">{{ f.tier_label }}</td>
+                  <td style="border:1px solid #ddd;padding:3px 6px;">
+                    {% if f.supervision_cost is not None %}{{ f.supervision_cost }}{% else %}—{% endif %}
+                  </td>
+                  <td style="border:1px solid #ddd;padding:3px 6px;">
+                    {% if f.status == 'approved' %}
+                      <span style="color:green;">已通过</span>{% if f.exec_round %}（第 {{ f.exec_round }} 轮生效）{% endif %}
+                    {% elif f.status == 'rejected' %}
+                      <span style="color:#a00;">已驳回</span>
+                    {% else %}
+                      <span style="color:#888;">待审核</span>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% endif %}
         </div>
       {% endfor %}
     </div>
