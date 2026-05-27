@@ -337,7 +337,7 @@ def platform_home(request):
     platform_id = getattr(platform_user, '所属平台', 0) if platform_user else 0
     current_round = _get_current_round()
 
-    cfg = _get_effective_profit_config(current_round, platform_id) or ProfitWeightConfig.objects.order_by('-id').first()
+    cfg = _get_effective_profit_config(max(1, current_round - 1), platform_id) or ProfitWeightConfig.objects.order_by('-id').first()
     period = int(getattr(cfg, '利润展示窗口轮数', 4) or 4)
     period = max(1, min(50, period))
 
@@ -3335,6 +3335,10 @@ def writer_select_body(request):
     if not article:
         return JsonResponse({'error': '请先点击发布文章'}, status=400)
     body_text = (request.POST.get('body_text') or '').strip()
+    if not body_text:
+        return JsonResponse({'error': '正文不能为空，请选择一个正文后再发布'}, status=400)
+    if not article.标题.strip():
+        return JsonResponse({'error': '标题不能为空，请先选择标题'}, status=400)
     try:
         position = int(request.POST.get('position', 1))
     except (TypeError, ValueError):

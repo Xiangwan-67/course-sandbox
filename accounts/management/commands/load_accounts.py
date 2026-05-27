@@ -13,7 +13,7 @@ from django.core.management.base import BaseCommand
 from django.conf import settings
 import openpyxl
 
-from accounts.models import WriterAccount, UserAccount, PlatformAccount, RegulatorAccount
+from accounts.models import WriterAccount, UserAccount, PlatformAccount, RegulatorAccount, ProfitWeightConfig
 from accounts.platform_scope import validate_regulator_platform_list
 from accounts.account_import import import_user_follows_from_sheet
 
@@ -188,6 +188,24 @@ class Command(BaseCommand):
             self.stdout.write('监管机构: 未找到 Sheet「监管机构」，已跳过。')
 
         wb.close()
+
+        # 若 ProfitWeightConfig 表为空，自动写入一条全局默认配置，防止周期利润结算被跳过
+        if not ProfitWeightConfig.objects.exists():
+            ProfitWeightConfig.objects.create(
+                平台=None,
+                生效轮次起=1,
+                生效轮次止=None,
+                点击率权重=1,
+                收藏率权重=1,
+                阅读完成率权重=1,
+                平台粉丝数权重=1,
+                监管成本权重=1,
+                利润展示窗口轮数=4,
+                备注='系统自动创建的默认配置',
+            )
+            self.stdout.write(self.style.SUCCESS('利润权重配置: 表为空，已自动创建全局默认配置（各权重=1，窗口=4轮）。'))
+        else:
+            self.stdout.write('利润权重配置: 已有配置，跳过自动创建。')
 
     def _import_role_accounts(self, ws, *, model, label):
         header = [
