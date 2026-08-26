@@ -6,7 +6,7 @@
 
 ## 1. 用途
 
-在用户阶段结束后，按**每个平台**结算本轮文章收益、处理举报、恢复写手健康分，必要时结算周期利润，然后将 **模拟轮次 +1**，并触发治理通知与监管自动巡查。
+在用户阶段结束后，按**每个平台**结算本轮已发布文章收益、处理举报、恢复写手健康分，必要时结算周期利润，然后将 **模拟轮次 +1**，并触发治理通知与监管自动巡查。`Article.is_published=False` 的草稿/中断残留不进入收益、周期利润、快照标题党统计或巡查分母。
 
 ---
 
@@ -56,7 +56,7 @@ perform_end_round()           accounts/round_ops.py
 
 1. `_recover_writer_health_for_platform` — 健康分恢复规则  
 2. `_process_article_reports` — 用户举报达阈值后的处理（依赖 `user_report` 治理包）  
-3. `_settle_article_revenue` — 单篇报酬：绩效权重、写作成本扣除、收益惩罚 β 等，写 `ArticleRevenueSettlement`，更新 `Article.报酬`  
+3. `_settle_article_revenue` — 仅处理 `is_published=True` 的单篇报酬：绩效权重、写作成本扣除、收益惩罚 β 等，写 `ArticleRevenueSettlement`，更新 `Article.报酬`
 4. 若 `round_to_settle % 利润展示窗口轮数 == 0` → `_settle_cycle_profit` → `PlatformCycleProfitRecord`
 
 ### 4.3 轮次递增后

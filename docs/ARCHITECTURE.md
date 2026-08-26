@@ -180,7 +180,7 @@ flowchart TB
 |------|----------|------|
 | `SimulationRound` | 模拟轮次 | 当前轮次（单行） |
 | `RoundSnapshotBatch` / `RoundSnapshotPlatform` / `RoundSnapshotWriter` / `RoundSnapshotWriterFan` | 轮次快照 | 结束本轮时写入，见 [end-round-settlement.md](features/end-round-settlement.md) §4.5 |
-| `Article` | 文章 | 标题/正文、统计；`is_clickbait`、`clickbait_source`（检测来源，仅 auto/user_report） |
+| `Article` | 文章 | 标题/正文、发布状态、统计；`is_published` 标记有效发布；`is_clickbait`、`clickbait_source`（检测来源，仅 auto/user_report） |
 | `Comment` | 评论 | 文章评论 |
 | `ArticlePush` | 文章推送记录 | 平台、用户、列表类型 0/1 |
 | `ArticlePushDetail` | 文章推送明细 | 是否粉丝 |

@@ -633,6 +633,7 @@ class Article(models.Model):
     内容相关度_初始值 = models.IntegerField(null=True, blank=True)   # 写手拖动滑块后点「提交」时的相关度
     内容相关度_校准值 = models.IntegerField(null=True, blank=True)   # 写手选中的正文对应的实际相关度
     创建时间 = models.DateTimeField(auto_now_add=True)
+    is_published = models.BooleanField(default=False, db_index=True, verbose_name='已发布')
     # 文章数据：已推送用户数、点击量、点赞量、收藏量、吸粉数、取关数、阅读完成量
     已推送 = models.PositiveIntegerField(default=0)   # 推送给了几个用户
     点击量 = models.PositiveIntegerField(default=0)   # 点击标题进入正文的用户数

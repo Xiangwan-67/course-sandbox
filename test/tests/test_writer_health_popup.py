@@ -28,6 +28,7 @@ def test_writer_health_popup_shows_once_and_can_confirm(client, writer_accounts)
         轮次=1,
         标题="测试标题党文章",
         正文="x",
+        is_published=True,
     )
     log = WriterHealthScoreLog.objects.create(
         写手账号=w.账号,

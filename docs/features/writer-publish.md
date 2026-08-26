@@ -6,7 +6,7 @@
 
 ## 1. 用途
 
-写手在沙盘内完成「选题 → 生成标题 → 选标题 → 生成正文 → 选正文」后发布文章；发布时按平台规则做标题党检测与健康分处理，并向**同平台用户**推送。
+写手在沙盘内完成「选题 → 生成标题 → 选标题 → 生成正文 → 选正文」后发布文章；发布时按平台规则做标题党检测、健康分处理、流量惩罚与推送，并向**同平台用户**推送。`Article.is_published=True` 是有效发布标记；中途刷新或放弃留下的草稿不进入巡查/结算统计。
 
 ---
 
@@ -14,7 +14,7 @@
 
 ```
 写手首页 writer_home
-  → POST writer/start-article/     writer_start_article      创建 Article，session article_id
+  → POST writer/start-article/     writer_start_article      创建/复用未发布 Article，session article_id
   → POST writer/generate-titles/   writer_generate_titles    callLLM 生成 3 标题
   → POST writer/select-title/      writer_select_title       存标题、标题夸张度_校准值
   → POST writer/generate-bodies/   writer_generate_bodies    callLLM 生成 3 正文
@@ -42,7 +42,7 @@ Session：`role=writer`，`account`，`article_id`（发文过程中）。
 
 ### 4.1 `writer_select_body` 副作用顺序
 
-1. 写入 `正文`、`内容相关度_校准值`、`轮次`（当前 `SimulationRound`）
+1. 若文章已发布则幂等返回；否则校验标题/正文非空，写入 `正文`、`内容相关度_校准值`、`轮次`（当前 `SimulationRound`）
 2. **标题党检测**（仅当平台该轮次生效的 `clickbait_detection` 治理包存在）  
    - `record_clickbait_judgment(..., source=auto, ...)`  
    - 规则：`X >= 阈值X` 且 `Y < 阈值Y` → 标题党  
@@ -50,7 +50,7 @@ Session：`role=writer`，`account`，`article_id`（发文过程中）。
    - 文章：`is_clickbait`、`clickbait_source=auto`（覆盖为最新来源）
 3. **健康分**（治理包 `account_health_rule` 生效且命中标题党）  
    - 扣分、更新 `推流系数` / `health_tier`，写 `WriterHealthScoreLog`
-4. **`_do_article_push(article)`** — 见下
+4. **`_do_article_push(article)`** — 见下；成功后标记 `Article.is_published=True`
 
 ### 4.2 文章推送 `_do_article_push`
 

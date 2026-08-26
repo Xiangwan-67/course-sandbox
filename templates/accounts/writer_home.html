@@ -348,6 +348,7 @@
             var bodyMid = document.getElementById('body_mid');
             var bodyHigh = document.getElementById('body_high');
             var submitted = false;
+            var bodySubmitting = false;
             var titleExaggerationLevel = 3;
             var contentRelevanceLevel = 3;
             var selectedTitle = '';
@@ -370,6 +371,8 @@
             }
 
             btnPublish.addEventListener('click', function () {
+                if (btnPublish.disabled) return;
+                btnPublish.disabled = true;
                 var form = new FormData();
                 form.append('csrfmiddlewaretoken', '{{ csrf_token }}');
                 fetch('{% url "accounts:writer_start_article" %}', {
@@ -383,6 +386,7 @@
                     if (data.error) {
                         errPub.textContent = data.error;
                         errPub.style.display = 'block';
+                        btnPublish.disabled = false;
                         return;
                     }
                     errPub.style.display = 'none';
@@ -396,6 +400,7 @@
                     var errPub = document.getElementById('error_publish');
                     errPub.textContent = '请求失败：' + e.message;
                     errPub.style.display = 'block';
+                    btnPublish.disabled = false;
                 });
             });
 
@@ -538,9 +543,11 @@
 
             [bodyLow, bodyMid, bodyHigh].forEach(function (el) {
                 el.addEventListener('click', function () {
+                    if (bodySubmitting) return;
                     if (!this.classList.contains('clickable')) return;
                     var text = (this.value || '').trim();
                     if (!text) return;
+                    bodySubmitting = true;
                     var pos = parseInt(this.getAttribute('data-index'), 10);
                     var form = new FormData();
                     form.append('body_text', text);
@@ -562,6 +569,7 @@
                         if (data.error) {
                             err.textContent = data.error;
                             err.style.display = 'block';
+                            bodySubmitting = false;
                             return;
                         }
                         var aid = data.article_id != null ? String(data.article_id) : '';
@@ -575,6 +583,7 @@
                     .catch(function (e) {
                         err.textContent = '选择正文失败：' + (e.message || '网络或服务器异常');
                         err.style.display = 'block';
+                        bodySubmitting = false;
                     });
                 });
             });

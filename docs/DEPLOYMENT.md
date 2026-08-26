@@ -178,6 +178,129 @@ python sandbox_site/manage.py migrate
 
 `python manage.py`、`mysql -u sandbox ...` 只能在 **shell** 里执行，不能贴在 `mysql>` 下。
 
+### 3.4 数据库是否正常（健康检查）
+
+以下命令在 **Linux shell**（`~/course-sandbox`）执行；密码与 `.env` 里 `MYSQL_*` 一致。先加载环境变量：
+
+```bash
+cd ~/course-sandbox
+source venv/bin/activate
+set -a && source .env && set +a
+```
+
+#### 3.4.1 MySQL 服务是否在跑
+
+```bash
+sudo systemctl status mysql
+# 或部分系统服务名为 mysqld
+sudo systemctl status mysqld
+```
+
+`Active: active (running)` 为正常。若未启动：
+
+```bash
+sudo systemctl start mysql
+```
+
+#### 3.4.2 客户端能否连上库（不经过 Django）
+
+```bash
+mysql -h 127.0.0.1 -P 3306 -u sandbox -p sandbox -e "SELECT 1 AS ok;"
+```
+
+提示输入密码；显示 `ok` 和 `1` 即账号、库名、密码正确。
+
+用 `.env` 变量（避免手打错主机/库名）：
+
+```bash
+mysql -h "${MYSQL_HOST}" -P "${MYSQL_PORT:-3306}" -u "${MYSQL_USER}" -p"${MYSQL_PASSWORD}" "${MYSQL_DATABASE}" -e "SELECT DATABASE(), VERSION();"
+```
+
+#### 3.4.3 Django 是否连的是 MySQL（推荐）
+
+```bash
+python sandbox_site/manage.py shell -c "from django.conf import settings; print(settings.DATABASES['default']['ENGINE'])"
+```
+
+应输出 `django.db.backends.mysql`（若仍是 `sqlite3`，说明 `.env` 未加载或 `MYSQL_HOST`/`MYSQL_DATABASE` 为空）。
+
+```bash
+python sandbox_site/manage.py check --database default
+python sandbox_site/manage.py shell -c "
+from django.db import connection
+connection.ensure_connection()
+print('连接成功:', connection.settings_dict['HOST'], connection.settings_dict['NAME'])
+"
+```
+
+无报错即 Django 到 MySQL 通路正常。
+
+#### 3.4.4 迁移是否齐全
+
+```bash
+python sandbox_site/manage.py showmigrations accounts | tail -20
+python sandbox_site/manage.py migrate --plan | tail -5
+```
+
+未打 `[X]` 的迁移需执行 `migrate`。课堂部署至少应看到 `[X] 0051_round_snapshot_tables`。
+
+#### 3.4.5 进入 MySQL 交互（`mysql>`）
+
+**方式 A：** 系统客户端
+
+```bash
+mysql -u sandbox -p sandbox
+```
+
+**方式 B：** Django（自动用当前 `settings` 账号）
+
+```bash
+set -a && source .env && set +a
+python sandbox_site/manage.py dbshell
+```
+
+进入后提示符为 `mysql>`，可执行下面 SQL；退出：`EXIT;` 或 `\q`。
+
+#### 3.4.6 常用 SQL（沙盘库 `sandbox`）
+
+```sql
+-- 当前库与表数量
+SELECT DATABASE();
+SHOW TABLES;
+
+-- 核心业务表是否有数据（部署后 load_accounts 应有行）
+SELECT COUNT(*) AS 写手数 FROM `写手`;
+SELECT COUNT(*) AS 用户数 FROM `用户`;
+SELECT COUNT(*) AS 平台账号数 FROM `平台账号`;
+SELECT COUNT(*) AS 监管机构数 FROM `监管机构账号`;
+
+-- 当前模拟轮次（单行 pk=1）
+SELECT * FROM `模拟轮次`;
+
+-- Django 迁移记录（accounts 应用）
+SELECT id, app, name, applied FROM django_migrations WHERE app = 'accounts' ORDER BY id DESC LIMIT 10;
+
+-- 轮次快照（需已 migrate 0051 且至少结束过一轮才有数据）
+SELECT COUNT(*) AS 快照批次数 FROM `轮次快照批次`;
+```
+
+| 现象 | 可能原因 |
+|------|----------|
+| `SHOW TABLES` 很少或没有中文表名 | 未执行 `migrate` |
+| `写手`/`用户` 为 0 | 未执行 `load_accounts` 或 Excel 不在项目根 |
+| `django_migrations` 无 `0051` | 未 migrate 到最新 |
+| `SELECT 1` 失败 1045 | 密码与 `.env` 不一致，见 §3.3 |
+| `Can't connect` | MySQL 未启动，或 `MYSQL_HOST` 不是本机可达地址 |
+
+#### 3.4.7 连接数与慢查询（人多卡顿时可看）
+
+```sql
+SHOW STATUS LIKE 'Threads_connected';
+SHOW FULL PROCESSLIST;
+```
+
+`Threads_connected` 持续很高时，检查是否有僵死连接或 Gunicorn worker 过多。
+
 ---
 
 ## 5. 导入账号
@@ -228,8 +351,8 @@ python sandbox_site/manage.py createsuperuser
 
 | URL | 说明 |
 |-----|------|
-| `http://202.112.113.142/:8000/admin/` | Django 自带后台 |
-| `http://202.112.113.142/:8000/admin/sandbox-ops/` | 沙盘运营台（需先以超户登录 Admin） |
+| `http://202.112.113.142:8000/admin/` | Django 自带后台 |
+| `http://202.112.113.142:8000/admin/sandbox-ops/` | 沙盘运营台（需先以超户登录 Admin） |
 
 无需重启 Gunicorn / systemd；用户写在 MySQL 的 `auth_user` 表。
 
@@ -446,7 +569,8 @@ curl -I http://127.0.0.1:8000/
 ## 9. 部署检查清单
 
 - [ ] `.env` 含 `MYSQL_HOST`、`MYSQL_DATABASE` 等
-- [ ] `ENGINE` 为 `django.db.backends.mysql`
+- [ ] `ENGINE` 为 `django.db.backends.mysql`（§3.4.3）
+- [ ] `mysql -e "SELECT 1"` 与 `SHOW TABLES` 正常（§3.4）
 - [ ] `migrate` 完成（含 0016 DROP CHECK）
 - [ ] `load_accounts --clear` 成功
 - [ ] （可选）`createsuperuser` 或已知 Admin 账号（§5.1）
@@ -464,7 +588,8 @@ curl -I http://127.0.0.1:8000/
 |------|------|
 | 全班刷不开 | MySQL + gthread；勿 SQLite + 4×sync |
 | migrate 3959 | `DROP CHECK 用户_chk_1` 再 migrate |
-| 1045 | `ALTER USER` + 改 `.env` 密码 |
+| 1045 | `ALTER USER` + 改 `.env` 密码；见 §3.4.2 |
+| 不确定库是否正常 | 按 §3.4 顺序：`systemctl` → `mysql -e SELECT 1` → Django `check` → `SHOW TABLES` |
 | Address already in use | `pkill -9 -f "gunicorn sandbox_site.wsgi"` |
 | 账号登不上 | 首页 `/`：检查 `load_accounts`；`/admin/`：检查 §5.1 超户 |
 | Admin 密码忘了 | SSH：`changepassword <用户名>`（§5.1） |

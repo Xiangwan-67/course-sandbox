@@ -26,6 +26,7 @@ def _create_article(*, writer_account: str, round_num: int, clicks: int, is_clic
         正文="pytest_revenue_body",
         点击量=clicks,
         is_clickbait=is_clickbait,
+        is_published=True,
     )
 
 

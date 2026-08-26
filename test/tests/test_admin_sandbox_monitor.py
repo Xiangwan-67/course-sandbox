@@ -30,7 +30,7 @@ def test_api_writers_published_requires_title_and_body(client, db, writer_accoun
     SimulationRound.objects.update_or_create(pk=1, defaults={"当前轮次": 2})
     w = writer_accounts[0]
 
-    Article.objects.create(写手账号=w.账号, 轮次=2, 标题="", 正文="body")
+    Article.objects.create(写手账号=w.账号, 轮次=2, 标题="", 正文="body", is_published=False)
     r = client.get("/admin/sandbox-monitor/api/writers/?round=2")
     assert r.status_code == 200
     data = r.json()
@@ -41,7 +41,7 @@ def test_api_writers_published_requires_title_and_body(client, db, writer_accoun
     assert row["published"] is False
 
     Article.objects.filter(写手账号=w.账号, 轮次=2).delete()
-    Article.objects.create(写手账号=w.账号, 轮次=2, 标题="t", 正文="b")
+    Article.objects.create(写手账号=w.账号, 轮次=2, 标题="t", 正文="b", is_published=True)
     r2 = client.get("/admin/sandbox-monitor/api/writers/?round=2")
     row2 = next(
         x for x in r2.json()["writers"]["platforms"][0]["writers"] if x["account"] == w.账号
@@ -55,7 +55,7 @@ def test_api_writers_all_published_summary(client, db):
     client.login(username="mon_staff3", password="secret3")
     SimulationRound.objects.update_or_create(pk=1, defaults={"当前轮次": 1})
     for w in WriterAccount.objects.all():
-        Article.objects.create(写手账号=w.账号, 轮次=1, 标题="x", 正文="y")
+        Article.objects.create(写手账号=w.账号, 轮次=1, 标题="x", 正文="y", is_published=True)
     r = client.get("/admin/sandbox-monitor/api/writers/?round=1")
     data = r.json()
     assert data["summary"]["all_published"] is True

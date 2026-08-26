@@ -31,6 +31,7 @@ def _create_article(*, writer_account: str, round_num: int, clicks: int = 0, is_
         正文="snap_body",
         点击量=clicks,
         is_clickbait=is_clickbait,
+        is_published=True,
     )
 
 

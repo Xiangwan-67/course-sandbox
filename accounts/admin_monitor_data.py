@@ -65,9 +65,8 @@ def parse_round_param(raw: Optional[str], *, fallback: Optional[int] = None) -> 
 
 def _writers_published_in_round(round_num: int) -> Set[str]:
     published: Set[str] = set()
-    for art in Article.objects.filter(轮次=round_num).only('写手账号', '标题', '正文'):
-        if (art.标题 or '').strip() and (art.正文 or '').strip():
-            published.add(art.写手账号)
+    for art in Article.objects.filter(轮次=round_num, is_published=True).only('写手账号'):
+        published.add(art.写手账号)
     return published
 
 

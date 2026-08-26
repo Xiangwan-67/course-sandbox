@@ -4,15 +4,16 @@
 
 ---
 
-## Article（当前结论，仅 2 个字段）
+## Article（发布状态与当前结论）
 
 | 字段 | 说明 |
 |------|------|
 | `is_clickbait` | 当前是否标题党：`True` / `False` / `None`（未判定） |
 | `clickbait_source`（检测来源） | 当前结论来源：**仅** `auto` / `user_report`；**最新一次** auto 或 user_report 判定会**覆盖** |
 | `clickbait_auto_executed` | 发文时是否执行过标题党**自动检测**（治理包 `clickbait_detection` 生效且落库）；`True`/`False`，默认 `False`；**举报、巡查不改** |
+| `is_published` | 是否完成最终正文提交、推送与流量记录；巡查只抽样已发布文章 |
 
-巡查、监管抽查**不写入** `clickbait_source` / `clickbait_auto_executed`，也不改 `is_clickbait`。
+巡查、监管抽查只处理 `is_published=True` 的文章；**不写入** `clickbait_source` / `clickbait_auto_executed`，也不改 `is_clickbait`。
 
 已移除字段（勿再使用）：`clickbait_detected_at`、`auto_rule_executed`、`method_auto_rule`、`method_user`。
 

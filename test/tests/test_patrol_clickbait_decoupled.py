@@ -22,6 +22,7 @@ def test_judge_clickbait_by_config_without_governance_measure(active_clickbait_c
         标题夸张度_校准值=5,
         内容相关度_校准值=2,
         is_clickbait=None,
+        is_published=True,
     )
     assert judge_clickbait_by_config(art, writer.所属平台) is True
     assert is_clickbait(art, writer.所属平台, 1) is False
@@ -41,6 +42,7 @@ def test_patrol_metrics_counts_clickbait_without_measure(active_clickbait_config
         标题夸张度_校准值=5,
         内容相关度_校准值=1,
         is_clickbait=None,
+        is_published=True,
     )
     Article.objects.create(
         写手账号=writer.账号,
@@ -49,6 +51,7 @@ def test_patrol_metrics_counts_clickbait_without_measure(active_clickbait_config
         标题夸张度_校准值=2,
         内容相关度_校准值=4,
         is_clickbait=None,
+        is_published=True,
     )
 
     metrics, err = _compute_platform_patrol_metrics(

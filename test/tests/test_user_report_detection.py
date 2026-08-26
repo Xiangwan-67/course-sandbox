@@ -21,6 +21,7 @@ def _create_article(*, writer_account: str, round_num: int = 1, clicks: int = 10
         标题="pytest_title",
         正文="pytest_body",
         点击量=clicks,
+        is_published=True,
     )
 
 

@@ -46,7 +46,7 @@ def _clickbait_counts_for_platform(
     x_th, y_th = _thresholds_from_config(cfg)
 
     articles = list(
-        Article.objects.filter(写手账号__in=writer_accounts, 轮次=round_num).only(
+        Article.objects.filter(写手账号__in=writer_accounts, 轮次=round_num, is_published=True).only(
             'id',
             'is_clickbait',
             '标题夸张度_校准值',

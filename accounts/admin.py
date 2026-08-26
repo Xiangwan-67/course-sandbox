@@ -306,10 +306,10 @@ class ArticleAdmin(admin.ModelAdmin):
         'id', '写手账号', '标题', '标题夸张度_初始值', '标题夸张度_校准值', '正文',
         '内容相关度_初始值', '内容相关度_校准值', '已推送', '点击量', '点赞量', '收藏量',
         '吸粉数', '取关数', '阅读完成量', '报酬',
-        'is_clickbait', 'clickbait_source', 'clickbait_auto_executed', 'report_count_current_round',
+        'is_published', 'is_clickbait', 'clickbait_source', 'clickbait_auto_executed', 'report_count_current_round',
         '创建时间',
     ]
-    list_filter = ['写手账号', 'is_clickbait']
+    list_filter = ['写手账号', 'is_published', 'is_clickbait']
     search_fields = ['标题', '正文']
 
 

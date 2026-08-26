@@ -30,6 +30,7 @@ def test_patrol_judgment_does_not_set_clickbait_source(active_clickbait_config, 
         内容相关度_校准值=1,
         is_clickbait=None,
         clickbait_source='',
+        is_published=True,
     )
 
     metrics, err = _compute_platform_patrol_metrics(
@@ -55,10 +56,12 @@ def test_patrol_records_all_sampled_articles(active_clickbait_config, writer_acc
     Article.objects.create(
         写手账号=writer.账号, 轮次=2, 标题='already_true',
         标题夸张度_校准值=5, 内容相关度_校准值=1, is_clickbait=True, clickbait_source='auto',
+        is_published=True,
     )
     Article.objects.create(
         写手账号=writer.账号, 轮次=2, 标题='already_false',
         标题夸张度_校准值=1, 内容相关度_校准值=5, is_clickbait=False, clickbait_source='auto',
+        is_published=True,
     )
 
     metrics, err = _compute_platform_patrol_metrics(
@@ -107,6 +110,7 @@ def test_user_report_sets_clickbait_source(
         内容相关度_校准值=1,
         点击量=10,
         is_clickbait=None,
+        is_published=True,
     )
     ArticleReport.objects.create(
         platform_id=platform_account.所属平台,

@@ -4,6 +4,7 @@ from django.views.decorators.http import require_http_methods
 from django.http import JsonResponse
 from django.utils import timezone
 from datetime import timedelta
+from django.db import transaction
 from django.db.models import F, Sum, Q
 from decimal import Decimal
 from django.views.decorators.csrf import ensure_csrf_cookie
@@ -144,7 +145,7 @@ def writer_home(request):
     )
     if prev_round >= 1 and writer_accounts_same_platform:
         article_ranking = list(
-            Article.objects.filter(轮次=prev_round, 写手账号__in=writer_accounts_same_platform)
+            Article.objects.filter(轮次=prev_round, 写手账号__in=writer_accounts_same_platform, is_published=True)
             .exclude(标题='').filter(标题__isnull=False)
             .order_by('-点击量')
         )
@@ -187,7 +188,7 @@ def writer_home(request):
     my_prev_round_rows = []
     if prev_round >= 1:
         for a in (
-            Article.objects.filter(写手账号=account, 轮次=prev_round)
+            Article.objects.filter(写手账号=account, 轮次=prev_round, is_published=True)
             .order_by('-点击量', '-id')
         ):
             st = ArticleRevenueSettlement.objects.filter(文章=a, 轮次=prev_round).first()
@@ -294,7 +295,7 @@ def writer_article_history(request):
     if not account or request.session.get('role') != 'writer':
         return redirect('accounts:login')
     history_rows = []
-    for a in Article.objects.filter(写手账号=account).order_by('轮次', '创建时间'):
+    for a in Article.objects.filter(写手账号=account, is_published=True).order_by('轮次', '创建时间'):
         st = ArticleRevenueSettlement.objects.filter(文章=a, 轮次=a.轮次).first()
         penalty_deduction = None
         if st and st.penalty_applied:
@@ -485,7 +486,7 @@ def platform_home(request):
     prev_round = max(0, current_round - 1)
     writers = WriterAccount.objects.filter(所属平台=platform_id)
     writer_accounts = set(writers.values_list('账号', flat=True))
-    prev_articles = Article.objects.filter(写手账号__in=writer_accounts, 轮次=prev_round) if prev_round > 0 else Article.objects.none()
+    prev_articles = Article.objects.filter(写手账号__in=writer_accounts, 轮次=prev_round, is_published=True) if prev_round > 0 else Article.objects.none()
     prev_agg = prev_articles.aggregate(
         total_click=Sum('点击量'),
         total_finish=Sum('阅读完成量'),
@@ -547,7 +548,7 @@ def platform_round_result(request):
 
     writers = WriterAccount.objects.filter(所属平台=platform_id)
     writer_accounts = set(writers.values_list('账号', flat=True))
-    round_articles = Article.objects.filter(写手账号__in=writer_accounts, 轮次=target_round)
+    round_articles = Article.objects.filter(写手账号__in=writer_accounts, 轮次=target_round, is_published=True)
     article_count = round_articles.count()
 
     auto_clickbait_articles = (
@@ -1994,7 +1995,7 @@ def _settle_article_revenue(platform_id: int, round_num: int):
     writers = WriterAccount.objects.filter(所属平台=platform_id)
     writer_accounts = set(writers.values_list('账号', flat=True))
 
-    articles = Article.objects.filter(写手账号__in=writer_accounts, 轮次=round_num)
+    articles = Article.objects.filter(写手账号__in=writer_accounts, 轮次=round_num, is_published=True)
 
     for art in articles:
         clicks = art.点击量 or 0
@@ -2295,6 +2296,7 @@ def _compute_platform_patrol_metrics(
             写手账号__in=writers,
             轮次__gte=start_r,
             轮次__lte=end_r,
+            is_published=True,
         ).values_list('id', flat=True)
     )
     total = len(id_list)
@@ -2736,6 +2738,7 @@ def _settle_cycle_profit(platform_id: int, cycle_index: int, start_round: int, e
         写手账号__in=writer_accounts,
         轮次__gte=start_round,
         轮次__lte=end_round,
+        is_published=True,
     )
     agg = article_qs.aggregate(
         total_click=Sum('点击量'),
@@ -3171,8 +3174,21 @@ def writer_start_article(request):
     account = request.session.get('account', '')
     if not account:
         return JsonResponse({'error': '未登录'}, status=403)
-    # 文章应记录创建时所在轮次；用户列表按本轮过滤展示
-    article = Article.objects.create(写手账号=account, 轮次=_get_current_round())
+    current_round = _get_current_round()
+    with transaction.atomic():
+        WriterAccount.objects.select_for_update().filter(账号=account).first()
+        article = _get_writer_article(request)
+        if article and not article.is_published and article.轮次 == current_round:
+            return JsonResponse({'article_id': article.pk})
+        article = (
+            Article.objects
+            .filter(写手账号=account, 轮次=current_round, is_published=False)
+            .order_by('-id')
+            .first()
+        )
+        if article is None:
+            # 文章应记录创建时所在轮次；用户列表按本轮过滤展示
+            article = Article.objects.create(写手账号=account, 轮次=current_round)
     request.session['writer_article_id'] = article.pk
     action_log(f"写手 {account} 点击发布文章 article_id={article.pk}")
     return JsonResponse({'article_id': article.pk})
@@ -3300,6 +3316,8 @@ def writer_select_title(request):
     article = _get_writer_article(request)
     if not article:
         return JsonResponse({'error': '请先点击发布文章'}, status=400)
+    if article.is_published:
+        return JsonResponse({'error': '文章已发布，不能修改标题'}, status=400)
     title_text = (request.POST.get('title_text') or '').strip()
     try:
         position = int(request.POST.get('position', 1))
@@ -3336,6 +3354,8 @@ def writer_select_body(request):
     article = _get_writer_article(request)
     if not article:
         return JsonResponse({'error': '请先点击发布文章'}, status=400)
+    if article.is_published:
+        return JsonResponse({'ok': True, 'article_id': article.pk})
     body_text = (request.POST.get('body_text') or '').strip()
     if not body_text:
         return JsonResponse({'error': '正文不能为空，请选择一个正文后再发布'}, status=400)
@@ -3429,6 +3449,8 @@ def writer_select_body(request):
         writer.refresh_from_db()
 
     _do_article_push(article)
+    article.is_published = True
+    article.save(update_fields=['is_published'])
     return JsonResponse({'ok': True, 'article_id': article.pk})
 
 

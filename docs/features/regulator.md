@@ -59,7 +59,7 @@ Admin sandbox-ops 审批 → RegulationAction / PlatformPatrolResult / Regulator
 - 监管手动申请：`PlatformPatrolApplication` → 审批 → `_execute_platform_patrol`。
 - 平台自查：`PlatformSelfPatrolApplication` / `PlatformSelfPatrolResult`（路由在 `platform/platform-patrol/`）。
 - 巡查比例等来自申请单与 `AdminBaseConfig.自动巡查比例`（自动巡查时）。
-- **标题党率**由 `_compute_platform_patrol_metrics` 统计；抽中文章均写 `ClickbaitDetectionResult(判定来源=patrol)`（True/False 全量），**不修改** Article 的 `is_clickbait` / `clickbait_source`。见 [clickbait-fields.md](clickbait-fields.md)。
+- **标题党率**由 `_compute_platform_patrol_metrics` 统计；抽样范围仅包含 `Article.is_published=True` 的有效发布文章；抽中文章均写 `ClickbaitDetectionResult(判定来源=patrol)`（True/False 全量），**不修改** Article 的 `is_clickbait` / `clickbait_source`。见 [clickbait-fields.md](clickbait-fields.md)。
 
 ### 4.4 罚款
 
